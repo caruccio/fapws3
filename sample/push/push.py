@@ -91,13 +91,16 @@ class MessageStream(list):
 	def has(self, mid):
 		return mid < len(self) # and self[mid] != None
 
-	def range(self, start, count=-1):
+	def range(self, start, count=None):
 		'''returns all messages from start up to fist "hole".
 		Ex: given message [0, 1, 2, 3, 4, None, 6]
 			range(1)    -> [1, 2, 3, 4]
 			range(1, 3) -> [1, 2, 3]
 		'''
-		return [ x for x in takewhile(lambda x: x != None, self[start:start+count]) ]
+		if count == None:
+			return [ x for x in takewhile(lambda x: x != None, self[start:]) ]
+		else:
+			return [ x for x in takewhile(lambda x: x != None, self[start:start+count]) ]
 
 	## some silly precautions
 	def pop(self, *vargs):
@@ -133,12 +136,25 @@ class Channel:
 		print '+ Channel %s' % self
 
 	def get_message(self, mid):
+		'''Retrieve a single message'''
 		print 'Channel> get_message %s' % mid
 		if self.stream.has(mid):
-			m = self.stream[mid]
+			m = self.stream.get[mid]
 			if m == None:
 				raise HttpStatus(204)
 			return self.stream[mid]
+		else:
+			return None
+
+	def get_message_bulk(self, mid, count=-1):
+		'''Retrieve all messages starting from mid, up to count. If count is -1, retrieve up to end.
+		If a hole is found, retrieve up to hole - 1.'''
+		print 'Channel> get_message_bulk %s:%count' % (mid, count)
+		if self.stream.has(mid):
+			m = self.stream.get(mid)
+			if m == None:
+				raise HttpStatus(204)
+			return self.stream.range(mid, count)
 		else:
 			return None
 
