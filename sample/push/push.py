@@ -1,15 +1,16 @@
 #!/usr/bin/python
 
 import os, signal
+from itertools import takewhile
+import fapws._evwsgi as evwsgi
+from fapws import base
+import urlparse
+
 try:
 	import posh
 	use_posh = True
 except:
 	use_posh = True
-
-import fapws._evwsgi as evwsgi
-from fapws import base
-import urlparse
 
 class HttpStatus:
 	status = {
@@ -56,7 +57,13 @@ class Message:
 		self.mid = mid
 		self.timestamp = timestamp
 		self.content = content
-		print '+ Channel %s' % self
+		print '+ Message %i = %s' % (mid, self)
+
+	def __repr__(self):
+		return str(id(self))
+
+	def eq(self, other):
+		return self.mid == other.mid
 
 	def __str__(self):
 		#[{"version":"1","operation":"INSERT","channelCode":"teste_17082011","reference":"0","payload":"Greetings from Porto Alegre, RS.","realtimeId":"2","dtCreated":"1314721007"},0]
@@ -85,22 +92,49 @@ class MessageStream(list):
 			# message is way too far from last message. fill with None and append
 			self.extend([ None for x in range(message.mid - len(self)) ])
 			self.append(message)
+		print 'insert:', self
 
 		#print '+ MessageStream: %s' % self
 
 	def has(self, mid):
 		return mid < len(self) # and self[mid] != None
 
-	def range(self, start, count=None):
+	def retrieve(self, start, offset=None):
 		'''returns all messages from start up to fist "hole".
-		Ex: given message [0, 1, 2, 3, 4, None, 6]
-			range(1)    -> [1, 2, 3, 4]
-			range(1, 3) -> [1, 2, 3]
+		Ex:
+			given this list:    [a, b, c, d, None, f, g, h]
+			retrieve(1)      -> [b, c, d]
+			retrieve(1, 1)   -> [b]
+			retrieve(1, -1)  -> [b]
+			retrieve(1, 0)   -> []
+			retrieve(1, 10)  -> [b, c, d]
+			retrieve(3, -2)  -> [b, c]
+			retrieve(6, -10) -> [f, g]
 		'''
-		if count == None:
+		print 'parm: s=%i o=%i' % (start, offset)
+		if offset == None:
 			return [ x for x in takewhile(lambda x: x != None, self[start:]) ]
+		elif offset != 0:
+			if offset < 0:
+				start = start + offset
+				offset = offset * -1
+				print 'parm: s=%i o=%i' % (start, offset)
+			print self[start:start + offset]
+			return [ x for x in takewhile(lambda x: x != None, self[start:start + offset]) ]
 		else:
-			return [ x for x in takewhile(lambda x: x != None, self[start:start+count]) ]
+			return list()
+
+	def range(self, start, count=1):
+		'''Return "count" messages starting from "start"'''
+		return self.retrieve(start, count * -1 if count < 0 else count)
+
+	def front(self, count=1):
+		'''Return first "count" messages'''
+		return self.range(0, count)
+
+	def back(self, count=1):
+		'''Return last "count" messages'''
+		return self.retrieve(len(self), count * -1)
 
 	## some silly precautions
 	def pop(self, *vargs):
@@ -392,8 +426,48 @@ def main():
 	evwsgi.set_base_module(base)
 	start()
 
+
+#############################
+# unittests
+#############################
+def unittest():
+	print 'test Message'
+	assert Message(0,0,'').eq(Message(0,0,''))
+	assert Message(0,1,'').eq(Message(0,0,''))
+	assert Message(0,0,'wasabi').eq(Message(0,0,'shoyu'))
+
+	print 'test MessageStream'
+	s = MessageStream()
+	tpl = [ Message(i, 0, 'text-%i' % i) for i in range(10) ]
+
+	print 'test MessageStream.insert'
+	[ s.insert(i) for i in tpl ]
+
+	print 'test MessageStream.front'
+	assert len(s.front()) == 1
+	assert len(s.front(5)) == 5
+	f = s.front(3)
+	assert f[0] == tpl[0] and f[1] == tpl[1] and f[2] == tpl[2]
+
+	print 'test MessageStream.back'
+	assert len(s.back()) == 1
+	assert len(s.back(4)) == 4
+	f = s.back(3)
+	assert f[0] == tpl[7] and f[1] == tpl[8] and f[2] == tpl[9]
+#	assert s.back()[0].mid == 9
+#	assert s.back(3).mid == [7, 8]
+
+#############################
+# main
+#############################
 if __name__ == '__main__':
-		main()
+	import sys
+
+	if len(sys.argv) > 1 and sys.argv[1] == '--unittest':
+		unittest()
+		sys.exit(0)
+
+	main()
 #	import sys
 #	if use_posh == True:
 #		print 'install posh module to enable shared objects between child process: http://poshmodule.sourceforge.net/'
@@ -402,3 +476,4 @@ if __name__ == '__main__':
 #		fork_main()
 #	else:
 #		main()
+
