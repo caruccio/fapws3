@@ -60,7 +60,7 @@ class Message:
 		print '+ Message %i = %s' % (mid, self)
 
 	def __repr__(self):
-		return str(id(self))
+		return str(self)
 
 	def eq(self, other):
 		return self.mid == other.mid
@@ -99,42 +99,19 @@ class MessageStream(list):
 	def has(self, mid):
 		return mid < len(self) # and self[mid] != None
 
-	def retrieve(self, start, offset=None):
-		'''returns all messages from start up to fist "hole".
-		Ex:
-			given this list:    [a, b, c, d, None, f, g, h]
-			retrieve(1)      -> [b, c, d]
-			retrieve(1, 1)   -> [b]
-			retrieve(1, -1)  -> [b]
-			retrieve(1, 0)   -> []
-			retrieve(1, 10)  -> [b, c, d]
-			retrieve(3, -2)  -> [b, c]
-			retrieve(6, -10) -> [f, g]
-		'''
-		print 'parm: s=%i o=%i' % (start, offset)
-		if offset == None:
-			return [ x for x in takewhile(lambda x: x != None, self[start:]) ]
-		elif offset != 0:
-			if offset < 0:
-				start = start + offset
-				offset = offset * -1
-				print 'parm: s=%i o=%i' % (start, offset)
-			print self[start:start + offset]
-			return [ x for x in takewhile(lambda x: x != None, self[start:start + offset]) ]
-		else:
-			return list()
-
 	def range(self, start, count=1):
 		'''Return "count" messages starting from "start"'''
-		return self.retrieve(start, count * -1 if count < 0 else count)
+		return [ x for x in takewhile(lambda x: x != None, self[start:start + count]) ]
 
 	def front(self, count=1):
 		'''Return first "count" messages'''
-		return self.range(0, count)
+		return [ x for x in takewhile(lambda x: x != None, self[0:count]) ]
 
 	def back(self, count=1):
 		'''Return last "count" messages'''
-		return self.retrieve(len(self), count * -1)
+		l = [ x for x in takewhile(lambda x: x != None, reversed(self[len(self) - count:])) ]
+		l.reverse()
+		return l
 
 	## some silly precautions
 	def pop(self, *vargs):
@@ -169,28 +146,46 @@ class Channel:
 		self.stream = MessageStream()
 		print '+ Channel %s' % self
 
+	def __len__(self):
+		return len(self.stream)
+
 	def get_message(self, mid):
 		'''Retrieve a single message'''
 		print 'Channel> get_message %s' % mid
 		if self.stream.has(mid):
-			m = self.stream.get[mid]
-			if m == None:
+			m = self.stream[mid]
+			if m:
+				return [m, 0]
+			else:
 				raise HttpStatus(204)
-			return self.stream[mid]
 		else:
 			return None
 
-	def get_message_bulk(self, mid, count=-1):
+	def get_message_range(self, mid, count=-1):
 		'''Retrieve all messages starting from mid, up to count. If count is -1, retrieve up to end.
 		If a hole is found, retrieve up to hole - 1.'''
-		print 'Channel> get_message_bulk %s:%count' % (mid, count)
+		print 'Channel> get_message_range %s:%i' % (mid, count)
 		if self.stream.has(mid):
-			m = self.stream.get(mid)
-			if m == None:
+			m = self.stream.range(mid, count)
+			if m:
+				return m + [0]
+			else:
 				raise HttpStatus(204)
-			return self.stream.range(mid, count)
 		else:
 			return None
+
+	def get_message_all(self):
+		return self.stream.front(len(self.stream)) + [0]
+
+	def get_message_oldest(self, count=10):
+		'''Retrieve count oldest messages. If a hole is found, retrieve up to that.'''
+		print 'Channel> get_message_oldest %i' % count
+		return self.stream.front(count) + [0]
+
+	def get_message_newest(self, count=10):
+		'''Retrieve count newest messages. If a hole is found, retrieve up to that.'''
+		print 'Channel> get_message_newest %i' % count
+		return self.stream.back(count) + [0]
 
 	def subscribe(self, client):
 		print 'Channel> subscribe %s' % client
@@ -199,7 +194,7 @@ class Channel:
 	def send_message(self, client, message):
 		print 'Channel> send_message %s - %s' % (client, message)
 		client.start_response('200 OK', [('Content-Type','application/json; charset="ISO-8859-1"')])
-		evwsgi.write_response(client.environ, client.start_response, ['[%s,0]' % message])
+		evwsgi.write_response(client.environ, client.start_response, [str(message)])
 
 	def send_error(self, client, http_error):
 		print 'Channel> send_error %s - %i' % (client, http_error.code)
@@ -213,6 +208,7 @@ class Channel:
 		# broadcast to subscribers
 		for n, client in self.subs.items():
 			try:
+				#TODO: check if client is waiting for this specific message
 				self.send_message(client, self.get_message(message.mid))
 			except HttpStatus, ex:
 				self.send_error(client, ex)
@@ -262,6 +258,15 @@ def start(no=0, shared=None):
 	#	posh.exit(0)
 	#signal.signal(signal.SIGINT, on_interrupt)
 
+	def return_mesgs(mesgs, ch, environ, start_response):
+		if mesgs:
+			start_response('200 OK', [('Content-Type','application/json; charset="ISO-8859-1"')])
+			return [str(mesgs)]
+		else:
+			# mesg not found, subscribe this client
+			ch.subscribe(Client(environ, start_response))
+			return True
+
 	# Subscriber handler
 	def subscribe(environ, start_response):
 		# Req:
@@ -289,17 +294,27 @@ def start(no=0, shared=None):
 				return ['invalid channel %s' % _ch]
 
 			# find message
-			_m = int(qs['m'][0])
-			mesg = ch.get_message(_m)
-			if mesg:
-				# got it! send imediatelly
-				#ch.send_message(Client(environ, start_response), mesg)
-				start_response('200 OK', [('Content-Type','application/json; charset="ISO-8859-1"')])
-				return ['[%s,0]' % mesg]
+			_s = qs['s'][0]
+			if _s == 'M':
+				mesg = ch.get_message(int(qs['m'][0]))
+				if mesg:
+					# got it! send it now
+					#ch.send_message(Client(environ, start_response), mesg)
+					start_response('200 OK', [('Content-Type','application/json; charset="ISO-8859-1"')])
+					return return_mesgs(mesg, ch, environ, start_response)
+				else:
+					# mesg not found, subscribe this client
+					ch.subscribe(Client(environ, start_response))
+					return True
+			elif _s == 'F':
+				return return_mesgs(ch.get_message_oldest(int(qs['m'][0])), ch, environ, start_response)
+			elif _s == 'L':
+				return return_mesgs(ch.get_message_newest(int(qs['m'][0])), ch, environ, start_response)
+			elif _s == 'A':
+				return return_mesgs(ch.get_message_all(), ch, environ, start_response)
 			else:
-				# mesg not found, subscribe this client
-				ch.subscribe(Client(environ, start_response))
-				return True
+				start_response('400 Bad request', [('Content-Type','text/plain')])
+				return ['invalid parameter: s=%s' % _s]
 		except HttpStatus, ex:
 			start_response('%s' % ex.status, [('Content-Type','text/plain')])
 			return ['invalid parameter: %s' % ex]
@@ -381,7 +396,7 @@ def start(no=0, shared=None):
 
 		# response to publisher
 		start_response('200 OK', [('Content-Type','text/plain')])
-		return ['queued messages: %i\nlast requested: %i sec. ago (-1=never)\nactive subscribers: %i\n' % (1, -1, subs_count) ] #TODO
+		return ['queued messages: %i\nlast requested: %i sec. ago (-1=never)\nactive subscribers: %i\n' % (len(ch), -1, subs_count) ] #TODO
 
 	evwsgi.wsgi_cb(('/broadcast/sub', subscribe))
 	evwsgi.wsgi_cb(('/broadcast/pub', publish))
@@ -426,7 +441,6 @@ def main():
 	evwsgi.set_base_module(base)
 	start()
 
-
 #############################
 # unittests
 #############################
@@ -454,8 +468,13 @@ def unittest():
 	assert len(s.back(4)) == 4
 	f = s.back(3)
 	assert f[0] == tpl[7] and f[1] == tpl[8] and f[2] == tpl[9]
-#	assert s.back()[0].mid == 9
-#	assert s.back(3).mid == [7, 8]
+
+	print 'test MessageStream holes'
+	tpl = [ Message(0, 0, 'text-0'), Message(1, 1, 'text-1'), Message(2, 2, 'text-2'), Message(4, 4, 'text-4'), Message(5, 5, 'text-5'), Message(7, 7, 'text-7') ]
+	s = MessageStream()
+	[ s.insert(i) for i in tpl ]
+	assert len(s.front(7)) == 3
+	assert len(s.back(7)) == 1
 
 #############################
 # main
