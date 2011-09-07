@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import os, signal
+import os, signal, time
 from itertools import takewhile
 import fapws._evwsgi as evwsgi
 from fapws import base
@@ -132,6 +132,7 @@ class MessageStream(list):
 #######################################################
 class Client:
 	def __init__(self, environ, start_response):
+		self.start = time.time()
 		self.environ = environ
 		self.start_response = start_response
 		print '+ Client %s' % self
@@ -140,10 +141,13 @@ class Client:
 # Channel is an aggregator for subscribers and messages
 #######################################################
 class Channel:
-	def __init__(self, name):
+	def_timeout = 60.0
+
+	def __init__(self, name, timeout):
 		self.name = name
 		self.subs = dict() # Subscribers for this channel
 		self.stream = MessageStream()
+		self.timeout = timeout
 		print '+ Channel %s' % self
 
 	def __len__(self):
@@ -218,20 +222,28 @@ class Channel:
 		self.subs.clear()
 		return total
 
+	def expire(self, now):
+		for n, client in self.subs.items():
+			if now >= client.start + self.timeout:
+				print 'Channel> expire %s' % client
+				self.send_error(client, HttpStatus(503))
+				del self.subs[n]
+
 #######################################################
 # ChannelPool handles an arbitrary number of Channels
 #######################################################
 class ChannelPool:
+
 	def __init__(self):
 		self.pool = dict()
 		print '+ ChannelPool %s' % self
 
-	def create_channel(self, name):
+	def create_channel(self, name, timeout=Channel.def_timeout):
 		print 'ChannelPool> create_channel %s' % name
 		try:
 			return self.pool[name]
 		except:
-			ch = Channel(name)
+			ch = Channel(name, timeout)
 			self.pool[name] = ch
 			return ch
 
@@ -241,6 +253,10 @@ class ChannelPool:
 			return self.pool[name]
 		except:
 			return None
+
+	def expire(self, now):
+		for name, channel in self.pool.items():
+			channel.expire(now)
 
 cpool = ChannelPool()
 
@@ -379,14 +395,18 @@ def start(no=0, shared=None):
 
 		try:
 			qs = urlparse.parse_qs(environ['QUERY_STRING'])
-			_ch = qs['ch'][0]
-			_m = int(qs['m'][0])
-			_t = qs['t'][0]
+			_ch = qs['ch'][0]           # channel name
+			_m = int(qs['m'][0])        # message id
+			_t = qs['t'][0]             # fetch mode
+			try:
+				_to = float(qs['to'][0]) # client timeout
+			except:
+				_to = ChannelPool.def_timeout
 			_mesg = environ['fapws.params']['rt_message'][0]
 			mesg = Message(_m, _t, _mesg)
 			ch = cpool.get_channel(_ch)
 			if not ch:
-				ch = cpool.create_channel(qs['ch'][0])
+				ch = cpool.create_channel(_ch, _to)
 		except KeyError, ex:
 			start_response('400 Bad request', [('Content-Type','text/plain')])
 			return ['invalid parameter: %s' % ex]
@@ -398,6 +418,10 @@ def start(no=0, shared=None):
 		start_response('200 OK', [('Content-Type','text/plain')])
 		return ['queued messages: %i\nlast requested: %i sec. ago (-1=never)\nactive subscribers: %i\n' % (len(ch), -1, subs_count) ] #TODO
 
+	def clock():
+		cpool.expire(time.time())
+
+	evwsgi.add_timer(5, clock)
 	evwsgi.wsgi_cb(('/broadcast/sub', subscribe))
 	evwsgi.wsgi_cb(('/broadcast/pub', publish))
 
