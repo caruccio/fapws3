@@ -7,6 +7,7 @@
 
 #include "extra.h"
 #include "common.h"
+#include "client.h"
 #include "wsgi.h"
 
 extern int debug;

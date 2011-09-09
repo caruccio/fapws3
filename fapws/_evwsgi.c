@@ -36,11 +36,11 @@
 #include <ev.h>
 
 #include <Python.h>
+#include "extra.h"
 #include "common.h"
+#include "client.h"
 #include "mainloop.h"
 #include "wsgi.h"
-#include "extra.h"
-
 
 /*
 Somme  global variables
@@ -65,9 +65,6 @@ struct ev_loop *loop; // we define a global loop
 PyObject *pydeferqueue;  //initialisation of defer
 ev_idle *idle_watcher;
 static PyObject *ServerError;
-
-
-
 
 /*
 Procedure exposed in Python will establish the socket and the connection.
@@ -215,7 +212,9 @@ static PyObject *py_set_base_module(PyObject *self, PyObject *args)
     PyObject *pydateformat=PyObject_GetAttrString(py_config_module,"date_format");
     date_format=PyString_AsString(pydateformat);
     
-    
+	//load python classes
+	if (load_py_classes(py_base_module) == -1)
+		return NULL;
     
     return Py_None;    
 }
@@ -417,31 +416,48 @@ PyObject *py_rfc1123_date(PyObject *self, PyObject *args)
 
 PyObject *py_write_response(PyObject *self, PyObject *args)
 {
-	PyObject *pyenviron, *pystart_response, *pymessage;
-	if (!PyArg_ParseTuple(args, "OOO", &pyenviron, &pystart_response, &pymessage))
+	PyObject *py_client, *py_message;
+	if (!PyArg_ParseTuple(args, "OO", &py_client, &py_message))
 		return NULL;
 
-	struct client *cli = get_client(pyenviron, pystart_response);
+	struct client *cli = get_client(py_client);
 	if (!cli) {
-		Py_INCREF(pyenviron);
-		Py_INCREF(pystart_response);
-		cli = current_client();
-		save_client(cli, pyenviron, pystart_response);
+		//Py_INCREF(pyenviron);
+		//Py_INCREF(pystart_response);
+		//cli = get_current_client();
+		//save_client(cli, pyenviron, pystart_response);
+		LERROR("py_write_response: unknown client %p", py_client);
+		return NULL;
 	}
 	LDEBUG("py_write_response %p", cli);
 
-	PyObject *o = PyList_GetItem(pymessage, 0);
+	PyObject *o = PyList_GetItem(py_message, 0);
 	LDEBUG("py_write_response mesg: %s", PyString_AsString(o));
 
+	//PyObject *pydummy = PyObject_Str(pystart_response);
+	PyObject *pystart_response = PyObject_GetAttrString(py_client, "start_response");
 	PyObject *pydummy = PyObject_Str(pystart_response);
-	strcpy(cli->response_header,PyString_AsString(pydummy));
-	cli->response_header_length=strlen(cli->response_header);
+	Py_DECREF(pystart_response);
+	strcpy(cli->response_header, PyString_AsString(pydummy));
+	cli->response_header_length = strlen(cli->response_header);
 	Py_DECREF(pydummy);
-	Py_INCREF(pymessage);
-	cli->response_content = pymessage;
-	ev_io_init(&cli->ev_write,write_response_cb,cli->fd,EV_WRITE);
-	ev_io_start(loop,&cli->ev_write);
+	Py_INCREF(py_message);
+	unregister_client(py_client);
+	cli->response_content = py_message;
+	ev_io_init(&cli->ev_write, write_response_cb, cli->fd,EV_WRITE);
+	ev_io_start(loop, &cli->ev_write);
 	return Py_None;
+}
+
+PyObject *py_register_client(PyObject *self, PyObject *args)
+{
+	PyObject *py_client;
+	if (!PyArg_ParseTuple(args, "O", &py_client))
+		return Py_False;
+
+	if (register_client(py_client, get_current_client()) != 0)
+		return Py_False;
+	return Py_True;
 }
 
 static PyMethodDef EvhttpMethods[] = {
@@ -460,7 +476,8 @@ static PyMethodDef EvhttpMethods[] = {
     {"defer", py_defer, METH_VARARGS, "defer the execution of a python function."},
     {"defer_queue_size", py_defer_queue_size, METH_VARARGS, "Get the size of the defer queue"},
     {"rfc1123_date", py_rfc1123_date, METH_VARARGS, "trasnform a time (in sec) into a string compatible with the rfc1123"},
-    {"write_response", py_write_response, METH_VARARGS, ""},
+    {"register_client", py_register_client, METH_VARARGS, "Register client and put it to wait"},
+    {"write_response", py_write_response, METH_VARARGS, "Write response to waiting client"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

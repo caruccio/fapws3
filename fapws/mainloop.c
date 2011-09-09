@@ -19,6 +19,7 @@
 
 #include <Python.h>
 #include "common.h"
+#include "client.h"
 #include "extra.h"
 #include "wsgi.h"
 #include "mainloop.h"
@@ -34,8 +35,6 @@ extern int debug;
 char * VERSION;
 PyObject *py_generic_cb; 
 char * date_format;
-
-
 
 /*
 Just to assure the connection will be nonblocking
@@ -79,6 +78,7 @@ LDEBUG("<< ENTER %p", cli);
     free(cli->cmd);
     free(cli->uri);
     free(cli->uri_path);
+    Py_XDECREF(cli->py_client);
     Py_XDECREF(cli->response_content);
     if (cli->response_content_obj!=NULL)
     {
@@ -186,45 +186,6 @@ int handle_uri(struct client *cli)
     return 0;
 }
 
-/*
-	TODO: Clearly we need a fast rbtree to store clients.
-	Also it whould be better to store in a known struct and expose it to python as a class.
-*/
-struct
-{
-	struct client *cli;
-	PyObject *pyenviron;
-	PyObject *pystart_response;
-} saveclient[100000];
-
-static struct client* _current_client = NULL;
-struct client* current_client()
-{
-	return _current_client;
-}
-
-int saved = 0;
-void save_client(struct client *cli, PyObject *pyenviron, PyObject* pystart_response)
-{
-	saveclient[saved].cli = cli;
-	saveclient[saved].pyenviron = pyenviron;
-	saveclient[saved].pystart_response = pystart_response;
-	LDEBUG("saved %i %p/%p/%p", saved, cli, pyenviron, pystart_response);
-	++saved;
-}
-
-struct client* get_client(PyObject *pyenviron, PyObject* pystart_response)
-{
-	int i;
-	for (i = 0; i < saved; ++i) {
-		if (saveclient[i].pyenviron == pyenviron) {
-			if (saveclient[i].pystart_response == pystart_response) {
-				return saveclient[i].cli;
-			}
-		}
-	}
-	return NULL;
-}
 
 /*
 This is the main python handler that will transform and treat the client html request. 
@@ -241,19 +202,12 @@ LDEBUG("<< ENTER %p", cli);
 
     LDEBUG("host=%s,port=%i:python_handler:HEADER:\n%s**", cli->remote_addr, cli->remote_port, cli->input_header);
     //  1)initialise environ
-    PyObject *pyenviron_class=PyObject_GetAttrString(py_base_module, "Environ");
-    if (!pyenviron_class)
-    {
-         LERROR("load Environ failed from base module");
-         exit(1);
-    }
-    PyObject *pyenviron=PyObject_CallObject(pyenviron_class, NULL);
+    PyObject *pyenviron=PyObject_CallObject(pyclass()->environ, NULL);
     if (!pyenviron)
     {
          LERROR("Failed to create an instance of Environ");
          exit(1);
     }
-    Py_DECREF(pyenviron_class);
     //  2)transform headers into a dictionary and send it to environ.update_headers
     pydict=header_to_dict(cli);
     if (pydict==Py_None)
@@ -332,9 +286,7 @@ LDEBUG("<< ENTER %p", cli);
     update_environ(pyenviron, pydict, "update_from_request");
     Py_DECREF(pydict);
     // 7) build response object
-    PyObject *pystart_response_class=PyObject_GetAttrString(py_base_module, "Start_response");
-    PyObject *pystart_response=PyInstance_New(pystart_response_class, NULL, NULL);
-    Py_DECREF(pystart_response_class);
+    PyObject *pystart_response=PyInstance_New(pyclass()->start_response, NULL, NULL);
     // 7b) add the current date to the response object
     PyObject *py_response_header=PyObject_GetAttrString(pystart_response,"response_headers");
     char *sftime;
@@ -367,7 +319,7 @@ LDEBUG("<< ENTER %p", cli);
     Py_DECREF(pyarglist);
     Py_XDECREF(cli->wsgi_cb);
 	if (defer_response == 1) {
-		save_client(cli, pyenviron, pystart_response);
+		register_client(cli->py_client, cli);
 		LDEBUG(">> EXIT %p", cli);
 		return 2;
 	} else if (cli->response_content!=NULL)
@@ -441,20 +393,14 @@ LDEBUG(">> EXIT %p", cli);
     return 1;
 }
 
-void write_response_cb(struct ev_loop *loop, struct ev_io *w, int revents)
+void close_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 {
 	struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_write)));
+LDEBUG("<< ENTER close_cb %p", cli);
 
-LDEBUG("<<<<<<<<<<<<<<<<<<<<<<< ENTER %p", cli);
+	close_connection(cli);
 
-	write_cli(cli, cli->response_header, cli->response_header_length, revents);
-	cli->response_iter_sent++; //-1: header sent
-LDEBUG("CLIENT=%p ITERATOR=%i", cli, cli->response_iter_sent);
-
-	ev_io_stop(EV_A_ w);
-	ev_io_init(&cli->ev_write,write_cb,cli->fd,EV_WRITE);
-	ev_io_start(loop,&cli->ev_write);
-LDEBUG(">>>>>>>>>>>>>>>>>>>>>>>> EXIT %p", cli);
+LDEBUG("<< EXIT close_cb %p", cli);
 }
 
 /*
@@ -528,14 +474,14 @@ void write_cb(struct ev_loop *loop, struct ev_io *w, int revents)
     int stop=0; //0: not stop, 1: stop, 2: stop and call tp close
     int ret; //python_handler return
     struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_write)));
-LDEBUG("<< ENTER %p", cli, cli->response_iter_sent);
+LDEBUG("<< ENTER %p %i", cli, cli->response_iter_sent);
 LDEBUG("CLIENT=%p ITERATOR=%i", cli, cli->response_iter_sent);
     if (cli->response_iter_sent==-2)
     { 
-		_current_client = cli;
-        //we must send an header or an error
-        ret=python_handler(cli); //look for python callback and execute it
-		_current_client = NULL;
+		set_current_client(cli);
+		//we must send an header or an error
+		ret=python_handler(cli); //look for python callback and execute it
+		set_current_client(NULL);
 		LDEBUG("python returned: %i", ret);
         if (ret==0)
         {
@@ -724,6 +670,21 @@ LDEBUG("stop=%i", stop);
 LDEBUG(">> EXIT");
 }
 
+void write_response_cb(struct ev_loop *loop, struct ev_io *w, int revents)
+{
+	struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_write)));
+
+LDEBUG("<< ENTER %p", cli);
+
+	write_cli(cli, cli->response_header, cli->response_header_length, revents);
+	cli->response_iter_sent++; //-1: header sent
+LDEBUG("CLIENT=%p ITERATOR=%i", cli, cli->response_iter_sent);
+
+	ev_io_stop(EV_A_ w);
+	ev_io_init(&cli->ev_write,write_cb,cli->fd,EV_WRITE);
+	ev_io_start(loop,&cli->ev_write);
+LDEBUG(">>>>>>>>>>>>>>>>>>>>>>>> EXIT %p", cli);
+}
 /*
 The procedure is the connection callback registered in the event loop
 */
@@ -837,6 +798,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *w, int revents)
     cli->response_header[0]='\0';
     cli->response_content=NULL;
     cli->response_content_obj=NULL;
+    cli->py_client = NULL;
     LDEBUG("host:%s,port:%i accept_cb: cli:%p, input_header:%p", inet_ntoa (client_addr.sin_addr),ntohs(client_addr.sin_port), cli, cli->input_header);
     cli->input_pos=0;
     cli->retry=0;

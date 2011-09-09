@@ -127,17 +127,6 @@ class MessageStream(list):
 		raise NotImplementedError('MessageStream is inmutable')
 
 #######################################################
-# Client is a single HTTP client. Every client receives
-# a single message and is disconnected
-#######################################################
-class Client:
-	def __init__(self, environ, start_response):
-		self.start = time.time()
-		self.environ = environ
-		self.start_response = start_response
-		print '+ Client %s' % self
-
-#######################################################
 # Channel is an aggregator for subscribers and messages
 #######################################################
 class Channel:
@@ -194,16 +183,17 @@ class Channel:
 	def subscribe(self, client):
 		print 'Channel> subscribe %s' % client
 		self.subs[len(self.subs)] = client
+		evwsgi.register_client(client)
 
 	def send_message(self, client, message):
 		print 'Channel> send_message %s - %s' % (client, message)
 		client.start_response('200 OK', [('Content-Type','application/json; charset="ISO-8859-1"')])
-		evwsgi.write_response(client.environ, client.start_response, [str(message)])
+		evwsgi.write_response(client, [str(message)])
 
 	def send_error(self, client, http_error):
 		print 'Channel> send_error %s - %i' % (client, http_error.code)
 		client.start_response(http_error.status, [('Content-Type','text/plain; charset="ISO-8859-1"')])
-		evwsgi.write_response(client.environ, client.start_response, [http_error.status])
+		evwsgi.write_response(client, [http_error.status])
 
 	def publish(self, message):
 		print 'Channel> publish %s' % message.mid
@@ -280,7 +270,7 @@ def start(no=0, shared=None):
 			return [str(mesgs)]
 		else:
 			# mesg not found, subscribe this client
-			ch.subscribe(Client(environ, start_response))
+			ch.subscribe(base.Client(environ, start_response))
 			return True
 
 	# Subscriber handler
@@ -320,7 +310,7 @@ def start(no=0, shared=None):
 					return return_mesgs(mesg, ch, environ, start_response)
 				else:
 					# mesg not found, subscribe this client
-					ch.subscribe(Client(environ, start_response))
+					ch.subscribe(base.Client(environ, start_response, timeout_cb=timeout, timeout=Channel.def_timeout))
 					return True
 			elif _s == 'F':
 				return return_mesgs(ch.get_message_oldest(int(qs['m'][0])), ch, environ, start_response)
@@ -421,7 +411,9 @@ def start(no=0, shared=None):
 	def clock():
 		cpool.expire(time.time())
 
-	evwsgi.add_timer(5, clock)
+	def timeout(environ, start_response):
+		ewsgi.close()
+
 	evwsgi.wsgi_cb(('/broadcast/sub', subscribe))
 	evwsgi.wsgi_cb(('/broadcast/pub', publish))
 

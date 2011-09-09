@@ -1,6 +1,6 @@
-#ifndef FAPWS3_EXTRA_H
-#define FAPWS3_EXTRA_H
+#pragma once
 
+#include <time.h>
 #include <syslog.h> //loglevel: LOG_*
 
 void stripChar(char *s, char *d, char c) ;
@@ -22,5 +22,3 @@ void log_debug(unsigned int priority, const char* file, const char* func, int li
 extern int debug;
 #define LERROR(fmt, ...) do { log_debug(LOG_ERR,   __FILE__, __FUNCTION__, __LINE__, fmt, ## __VA_ARGS__); } while(0)
 #define LDEBUG(fmt, ...) do { if (debug) log_debug(LOG_DEBUG, __FILE__, __FUNCTION__, __LINE__, fmt, ## __VA_ARGS__); } while(0)
-
-#endif //FAPWS3_EXTRA_H

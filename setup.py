@@ -117,8 +117,8 @@ classifiers=['Development Status :: 4 - Beta','Environment :: Web Environment','
       packages= find_packages(),
       ext_modules = [
           Extension('fapws._evwsgi',
-                  depends=['fapws/extra.h','fapws/wsgi.h','fapws/mainloop.h','fapws/common.h'],
-                  sources=['fapws/extra.c', 'fapws/wsgi.c','fapws/mainloop.c','fapws/_evwsgi.c'],
+                  depends=['fapws/extra.h','fapws/wsgi.h','fapws/mainloop.h','fapws/common.h', 'fapws/client.h'],
+                  sources=['fapws/extra.c', 'fapws/wsgi.c','fapws/mainloop.c','fapws/_evwsgi.c', 'fapws/client.c', 'fapws/common.c'],
                   include_dirs=include_dirs,
                   library_dirs=library_dirs, 
                   libraries=['ev'],
