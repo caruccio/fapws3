@@ -7,7 +7,8 @@
 
 struct TimerObj {
 	ev_timer timerwatcher;
-	float delay;
+	ev_tstamp timeout;
+	ev_tstamp repeat;
 	PyObject *py_cb;
 };
 
@@ -24,3 +25,4 @@ PyClasses* pyclass(void);
 int load_py_classes(PyObject* module);
 void unload_py_classes(void);
 
+void start_timer(struct TimerObj *timer, void* cb);

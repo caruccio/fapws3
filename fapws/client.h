@@ -30,10 +30,13 @@ struct client
 	FILE *response_fp; // file of the sent file
 	struct TimerObj tout;
 	PyObject* py_client; //python instance of class Client
+	int id;
 };
 
 struct client* set_current_client(struct client* cli);
 struct client* get_current_client(void);
-int register_client(PyObject *py_client, struct client *cli);
+int register_client(struct client *cli);
 void unregister_client(PyObject *py_client);
 struct client* get_client(PyObject *py_client);
+void close_client(PyObject* py_client);
+int set_client_timer(struct client* cli, float timeout, PyObject* py_cb);

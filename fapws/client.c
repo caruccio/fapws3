@@ -1,5 +1,6 @@
 #include "extra.h"
 #include "client.h"
+#include "mainloop.h"
 #include <Python.h>
 
 static struct client* _current_client = NULL;
@@ -22,14 +23,47 @@ struct client* get_current_client(void)
 	return _current_client;
 }
 
-static int _saved = 0;
-int register_client(PyObject *py_client, struct client *cli)
+static struct TimerObj *create_timer(void)
 {
-	Py_INCREF(py_client);
-	cli->py_client = py_client;
+	struct TimerObj *t = malloc(sizeof(*t));
+	if (!t)
+		return NULL;
+	memset(&t->timerwatcher, 0, sizeof(t->timerwatcher));
+	t->timeout = 0;
+	t->repeat = 0;
+	t->py_cb = NULL;
+	return t;
+}
+
+int set_client_timer(struct client* cli, float timeout, PyObject* py_cb)
+{
+LDEBUG("<< ENTER");
+/*	if (!cli->tout) {
+		if ((cli->tout = create_timer()) == NULL) {
+			LDEBUG(">> EXIT");
+			return -1;
+		}
+	}
+	cli->tout->timeout = timeout;
+	cli->tout->repeat = 0;
+	*/
+	memset(&cli->tout.timerwatcher, 0, sizeof(cli->tout.timerwatcher));
+	cli->tout.timeout = timeout;
+	cli->tout.repeat = 0;
+	cli->tout.py_cb = py_cb;
+	start_timer(&cli->tout, &timeout_cb);
+LDEBUG(">> EXIT");
+	return 0;
+}
+
+static int _saved = 0;
+int register_client(struct client *cli)
+{
+	if (cli->py_client)
+		Py_INCREF(cli->py_client);
 
 	_clients[_saved++] = cli;
-	LDEBUG("saved %i %p->%p", _saved - 1, cli, py_client);
+	LDEBUG("saved[%i]=%p->%p", _saved - 1, cli, cli->py_client);
 	return 0;
 }
 
@@ -49,3 +83,9 @@ struct client* get_client(PyObject *py_client)
 	return NULL;
 }
 
+void close_client(PyObject* py_client)
+{
+	struct client* cli = get_client(py_client);
+	if (cli)
+		close_connection(cli);
+}

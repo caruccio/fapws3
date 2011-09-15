@@ -130,7 +130,7 @@ class MessageStream(list):
 # Channel is an aggregator for subscribers and messages
 #######################################################
 class Channel:
-	def_timeout = 60.0
+	def_timeout = 2.0
 
 	def __init__(self, name, timeout):
 		self.name = name
@@ -212,12 +212,12 @@ class Channel:
 		self.subs.clear()
 		return total
 
-	def expire(self, now):
-		for n, client in self.subs.items():
-			if now >= client.start + self.timeout:
-				print 'Channel> expire %s' % client
-				self.send_error(client, HttpStatus(503))
-				del self.subs[n]
+	#def expire(self, now):
+	#	for n, client in self.subs.items():
+	#		if now >= client.start + self.timeout:
+	#			print 'Channel> expire %s' % client
+	#			self.send_error(client, HttpStatus(503))
+	#			del self.subs[n]
 
 #######################################################
 # ChannelPool handles an arbitrary number of Channels
@@ -244,9 +244,9 @@ class ChannelPool:
 		except:
 			return None
 
-	def expire(self, now):
-		for name, channel in self.pool.items():
-			channel.expire(now)
+	#def expire(self, now):
+	#	for name, channel in self.pool.items():
+	#		channel.expire(now)
 
 cpool = ChannelPool()
 
@@ -310,7 +310,8 @@ def start(no=0, shared=None):
 					return return_mesgs(mesg, ch, environ, start_response)
 				else:
 					# mesg not found, subscribe this client
-					ch.subscribe(base.Client(environ, start_response, timeout_cb=timeout, timeout=Channel.def_timeout))
+					print 'Go subscribe...'
+					ch.subscribe(base.Client(environ, start_response, timeout_cb=do_timeout, timeout=Channel.def_timeout))
 					return True
 			elif _s == 'F':
 				return return_mesgs(ch.get_message_oldest(int(qs['m'][0])), ch, environ, start_response)
@@ -408,16 +409,17 @@ def start(no=0, shared=None):
 		start_response('200 OK', [('Content-Type','text/plain')])
 		return ['queued messages: %i\nlast requested: %i sec. ago (-1=never)\nactive subscribers: %i\n' % (len(ch), -1, subs_count) ] #TODO
 
-	def clock():
-		cpool.expire(time.time())
+	#def clock():
+	#	cpool.expire(time.time())
 
-	def timeout(environ, start_response):
-		ewsgi.close()
+	def do_timeout(client):
+		print 'Client timeout'
+		evwsgi.close_client(client)
 
 	evwsgi.wsgi_cb(('/broadcast/sub', subscribe))
 	evwsgi.wsgi_cb(('/broadcast/pub', publish))
 
-	evwsgi.set_debug(0)
+	evwsgi.set_debug(1)
 	evwsgi.run()
 
 ######################

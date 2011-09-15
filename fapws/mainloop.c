@@ -93,6 +93,29 @@ LDEBUG(">> EXIT");
 }
 
 
+void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
+{
+	struct TimerObj *tout = ((struct TimerObj*) (((char*)w) - offsetof(struct TimerObj, timerwatcher)));
+	struct client *cli = ((struct client*) (((char*)tout) - offsetof(struct client, tout)));
+
+	LDEBUG("cli=%p %i", cli, cli->id);
+	LDEBUG("tout=%p", tout);
+
+	if (tout->py_cb) {
+		LDEBUG("calling %p(%p)\n", tout->py_cb, cli->py_client);
+		PyObject *pyarglist = Py_BuildValue("(O)",  cli->py_client);
+		cli->response_content = PyEval_CallObject(tout->py_cb, pyarglist);
+		Py_DECREF(pyarglist);
+	} else {
+		LDEBUG("calling %p(%p\n", tout->py_cb, cli->py_client);
+		PyObject *py_cb = PyObject_GetAttrString(cli->py_client, "timeout_cb");
+		PyEval_CallFunction(py_cb, "O", cli->py_client);
+		Py_XDECREF(py_cb);
+	}
+
+	ev_timer_stop(loop, w);
+}
+
 /*
  */
 void timer_cb(struct ev_loop *loop, ev_timer *w, int revents)
@@ -310,16 +333,16 @@ LDEBUG("<< ENTER %p", cli);
             //This is an Iterator object. We have to execute it first
             cli->response_content_obj = cli->response_content;
             cli->response_content = PyIter_Next(cli->response_content_obj);
-			} else if (PyBool_Check(cli->response_content) == 1 && Py_True == cli->response_content) {
-				defer_response = 1;
-				Py_DECREF(cli->response_content);
-				cli->response_content = NULL;
-			}
+		} else if (PyBool_Check(cli->response_content) == 1 && Py_True == cli->response_content) {
+			defer_response = 1;
+			Py_DECREF(cli->response_content);
+			cli->response_content = NULL;
+		}
     }
     Py_DECREF(pyarglist);
     Py_XDECREF(cli->wsgi_cb);
 	if (defer_response == 1) {
-		register_client(cli->py_client, cli);
+		register_client(cli);
 		LDEBUG(">> EXIT %p", cli);
 		return 2;
 	} else if (cli->response_content!=NULL)
@@ -396,11 +419,9 @@ LDEBUG(">> EXIT %p", cli);
 void close_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 {
 	struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_write)));
-LDEBUG("<< ENTER close_cb %p", cli);
-
+	LDEBUG("<< ENTER close_cb %p", cli);
 	close_connection(cli);
-
-LDEBUG("<< EXIT close_cb %p", cli);
+	LDEBUG("<< EXIT close_cb %p", cli);
 }
 
 /*
@@ -775,6 +796,7 @@ void connection_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 /*
 This is the accept call back registered in the event loop
 */
+static int id = 99;
 void accept_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 {
     int client_fd;
@@ -787,7 +809,8 @@ void accept_cb(struct ev_loop *loop, struct ev_io *w, int revents)
         }
     //intialisation of the client struct
     cli = calloc(1,sizeof(struct client));
-	LDEBUG("<< ENTER %p", cli);
+	cli->id = id++;
+	LDEBUG("<< ENTER %p (%i)", cli, cli->id);
     cli->fd=client_fd;
     cli->input_header=malloc(1*sizeof(char));  //will be free'd when we will close the connection
     cli->input_body=NULL;

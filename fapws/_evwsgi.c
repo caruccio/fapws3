@@ -131,7 +131,12 @@ http://beej.us/guide/bgnet/output/html/singlepage/bgnet.html
     return Py_None;
 }
 
-
+void start_timer(struct TimerObj *timer, void* cb)
+{
+	LDEBUG("new timer: t=%f r=%f cb=%p", timer->timeout, timer->repeat, cb);
+	ev_timer_init(&timer->timerwatcher, cb, timer->timeout, timer->repeat);
+	ev_timer_start(loop, &timer->timerwatcher);
+}
 
 /*
 Procedure exposed in Python will generate and start the event loop
@@ -175,8 +180,7 @@ static PyObject *py_run_loop(PyObject *self, PyObject *args)
         for (i=0; i<list_timers_i; i++)
         {
             timer=list_timers[i];
-            ev_timer_init(&timer->timerwatcher, timer_cb, timer->delay, timer->delay);
-            ev_timer_start(loop, &timer->timerwatcher);
+				start_timer(timer, timer_cb);
         }
     }
     ev_loop (loop, 0);
@@ -278,7 +282,7 @@ static PyObject *py_add_timer_cb(PyObject *self, PyObject *args)
     if (list_timers_i<MAX_TIMERS)
     {
         timer = calloc(1,sizeof(struct TimerObj));
-        if (!PyArg_ParseTuple(args, "fO", &timer->delay, &timer->py_cb)) 
+        if (!PyArg_ParseTuple(args, "fO", &timer->timeout, &timer->py_cb)) 
             return NULL;
         list_timers[list_timers_i]=timer;
         list_timers_i++;
@@ -449,14 +453,57 @@ PyObject *py_write_response(PyObject *self, PyObject *args)
 	return Py_None;
 }
 
+static int py_set_client_timeout(struct client* cli)
+{
+LDEBUG("<< ENTER");
+	if (!cli || !cli->py_client)
+		return -1;
+	PyObject* py_client = cli->py_client;
+
+	PyObject *py_timer = PyObject_GetAttrString(py_client, "timeout");
+	float timer = 60;
+	if (py_timer)
+		timer = PyFloat_AsDouble(py_timer);
+
+	int r = set_client_timer(cli, timer >= 0 ? timer : 60, PyObject_GetAttrString(py_client, "timeout_cb"));
+	LDEBUG(">> EXIT");
+	return r;
+}
+
 PyObject *py_register_client(PyObject *self, PyObject *args)
+{
+LDEBUG("<< ENTER");
+	struct client* cli = get_current_client();
+	if (!PyArg_ParseTuple(args, "O", &cli->py_client)) {
+		LDEBUG(">> EXIT");
+		return Py_False;
+	}
+printf("py_register_client %p %p - %p %i\n", self, args, cli->py_client, cli->id);
+
+	if (py_set_client_timeout(cli) == -1) {
+		LDEBUG(">> EXIT");
+		return Py_False;
+	}
+
+/*	PyObject *py_client;
+	if (!PyArg_ParseTuple(args, "O", &py_client))
+		return Py_False;
+*/
+	if (register_client(cli) != 0) {
+		LDEBUG(">> EXIT");
+		return Py_False;
+	}
+	LDEBUG(">> EXIT");
+	return Py_True;
+}
+
+PyObject *py_close_client(PyObject *self, PyObject *args)
 {
 	PyObject *py_client;
 	if (!PyArg_ParseTuple(args, "O", &py_client))
 		return Py_False;
 
-	if (register_client(py_client, get_current_client()) != 0)
-		return Py_False;
+	close_client(py_client);
 	return Py_True;
 }
 
@@ -476,8 +523,9 @@ static PyMethodDef EvhttpMethods[] = {
     {"defer", py_defer, METH_VARARGS, "defer the execution of a python function."},
     {"defer_queue_size", py_defer_queue_size, METH_VARARGS, "Get the size of the defer queue"},
     {"rfc1123_date", py_rfc1123_date, METH_VARARGS, "trasnform a time (in sec) into a string compatible with the rfc1123"},
-    {"register_client", py_register_client, METH_VARARGS, "Register client and put it to wait"},
     {"write_response", py_write_response, METH_VARARGS, "Write response to waiting client"},
+    {"register_client", py_register_client, METH_VARARGS, "Register client and put it to wait"},
+    {"close_client", py_close_client, METH_VARARGS, "Close client"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

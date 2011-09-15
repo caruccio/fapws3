@@ -144,9 +144,9 @@ def parse_cookies(environ):
         return None
 
 class Client:
-	def __init__(self, environ, start_response, timeout=float(0), timeout_cb=None):
-		self.start = time.time()
-		self.environ = environ
-		self.start_response = start_response
-		self.timeout = timeout
-		self.timeout_cb = timeout_cb
+    def __init__(self, environ, start_response, timeout=float(0), timeout_cb=None):
+        self.start = time.time()
+        self.environ = environ
+        self.start_response = start_response
+        self.timeout = timeout
+        self.timeout_cb = timeout_cb
