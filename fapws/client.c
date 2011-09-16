@@ -37,10 +37,10 @@ static struct TimerObj *create_timer(void)
 
 int set_client_timer(struct client* cli, float timeout, PyObject* py_cb)
 {
-LDEBUG("<< ENTER");
+LDEBUG(">> ENTER");
 /*	if (!cli->tout) {
 		if ((cli->tout = create_timer()) == NULL) {
-			LDEBUG(">> EXIT");
+			LDEBUG("<< EXIT");
 			return -1;
 		}
 	}
@@ -52,7 +52,7 @@ LDEBUG("<< ENTER");
 	cli->tout.repeat = 0;
 	cli->tout.py_cb = py_cb;
 	start_timer(&cli->tout, &timeout_cb);
-LDEBUG(">> EXIT");
+LDEBUG("<< EXIT");
 	return 0;
 }
 

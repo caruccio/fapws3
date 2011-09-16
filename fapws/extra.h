@@ -17,8 +17,9 @@ char *time_rfc1123(time_t t);
 
 char *cur_time_rfc1123(void);
 
-void log_debug(unsigned int priority, const char* file, const char* func, int line, const char* fmt, ...) __attribute__((format (printf, 5, 6)));
+void log_mesg(unsigned int priority, const char* file, const char* func, int line, const char* fmt, ...) __attribute__((format (printf, 5, 6)));
 
-extern int debug;
-#define LERROR(fmt, ...) do { log_debug(LOG_ERR,   __FILE__, __FUNCTION__, __LINE__, fmt, ## __VA_ARGS__); } while(0)
-#define LDEBUG(fmt, ...) do { if (debug) log_debug(LOG_DEBUG, __FILE__, __FUNCTION__, __LINE__, fmt, ## __VA_ARGS__); } while(0)
+extern int log_level;
+#define LERROR(fmt, ...) do { if (log_level >= LOG_ERR)   log_mesg(LOG_ERR,   __FILE__, __FUNCTION__, __LINE__, fmt, ## __VA_ARGS__); } while(0)
+#define LINFO(fmt, ...)  do { if (log_level >= LOG_INFO)  log_mesg(LOG_INFO, NULL, NULL, -1, fmt, ## __VA_ARGS__); } while(0)
+#define LDEBUG(fmt, ...) do { if (log_level >= LOG_DEBUG) log_mesg(LOG_DEBUG, __FILE__, __FUNCTION__, __LINE__, fmt, ## __VA_ARGS__); } while(0)

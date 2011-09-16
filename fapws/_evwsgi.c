@@ -1,3 +1,4 @@
+// vim: ts=4
 /*
     Copyright (C) 2009 William.os4y@gmail.com
 
@@ -45,7 +46,7 @@
 /*
 Somme  global variables
 */
-int debug=1; //1 full debug detail: 0 nodebug
+int log_level = LOG_ERR; //from syslog.h
 char *server_name="127.0.0.1";
 char *server_port="8000";
 int sockfd;  // main sock_fd
@@ -127,7 +128,7 @@ http://beej.us/guide/bgnet/output/html/singlepage/bgnet.html
         PyErr_SetString(ServerError, "listen");
         return NULL;
     }
-    printf("listen on %s:%s\n", server_name, server_port);
+	LINFO("listen on %s:%s", server_name, server_port);
     return Py_None;
 }
 
@@ -164,7 +165,7 @@ static PyObject *py_run_loop(PyObject *self, PyObject *args)
             backend="kqueue";
             break;
     }
-    printf("Using %s as event backend\n", backend);
+    LINFO("Using %s as event backend", backend);
     ev_io_init(&accept_watcher,accept_cb,sockfd,EV_READ);
     ev_io_start(loop,&accept_watcher);
     ev_signal_init(&signal_watcher, sigint_cb, SIGINT);
@@ -257,20 +258,35 @@ PyObject *py_set_gen_wsgi_cb(PyObject *self, PyObject *args)
     return Py_None;
 }
 
-/*
-*/
 PyObject *py_set_debug(PyObject *self, PyObject *args)
 {
-    if (!PyArg_ParseTuple(args, "i", &debug))
+	unsigned long debug_val = PyInt_AsUnsignedLongMask(args);
+	if (debug_val == 1)
+		log_level = LOG_DEBUG;
+	else
+		log_level = LOG_ERR;
+	return Py_None;
+}
+
+PyObject *py_get_debug(PyObject *self, PyObject *args)
+{
+	return Py_BuildValue("i", (log_level == LOG_DEBUG) ? 1 : 0);
+}
+
+/*
+*/
+PyObject *py_set_log_level(PyObject *self, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, "i", &log_level))
         return NULL;
     return Py_None;
 }
 
 /*
 */
-PyObject *py_get_debug(PyObject *self, PyObject *args)
+PyObject *py_get_log_level(PyObject *self, PyObject *args)
 {
-    return Py_BuildValue("i", debug);
+    return Py_BuildValue("i", log_level);
 }
 
 /*
@@ -289,7 +305,7 @@ static PyObject *py_add_timer_cb(PyObject *self, PyObject *args)
     } 
     else
     {
-        printf("Limit of maximum %i timers has been reached\n", list_timers_i);
+        LERROR("Limit of maximum %i timers has been reached", list_timers_i);
     }
     
     return PyInt_FromLong(list_timers_i);    
@@ -328,7 +344,7 @@ static PyObject *py_restart_timer(PyObject *self, PyObject *args)
     }
     else
     {
-        printf("index out of range\n");
+        LERROR("index out of range: %i", i);
     }
     return Py_None;    
 }
@@ -455,7 +471,7 @@ PyObject *py_write_response(PyObject *self, PyObject *args)
 
 static int py_set_client_timeout(struct client* cli)
 {
-LDEBUG("<< ENTER");
+LDEBUG(">> ENTER");
 	if (!cli || !cli->py_client)
 		return -1;
 	PyObject* py_client = cli->py_client;
@@ -466,22 +482,21 @@ LDEBUG("<< ENTER");
 		timer = PyFloat_AsDouble(py_timer);
 
 	int r = set_client_timer(cli, timer >= 0 ? timer : 60, PyObject_GetAttrString(py_client, "timeout_cb"));
-	LDEBUG(">> EXIT");
+	LDEBUG("<< EXIT");
 	return r;
 }
 
 PyObject *py_register_client(PyObject *self, PyObject *args)
 {
-LDEBUG("<< ENTER");
+	LDEBUG(">> ENTER");
 	struct client* cli = get_current_client();
 	if (!PyArg_ParseTuple(args, "O", &cli->py_client)) {
-		LDEBUG(">> EXIT");
+		LDEBUG("<< EXIT");
 		return Py_False;
 	}
-printf("py_register_client %p %p - %p %i\n", self, args, cli->py_client, cli->id);
 
 	if (py_set_client_timeout(cli) == -1) {
-		LDEBUG(">> EXIT");
+		LDEBUG("<< EXIT");
 		return Py_False;
 	}
 
@@ -490,10 +505,10 @@ printf("py_register_client %p %p - %p %i\n", self, args, cli->py_client, cli->id
 		return Py_False;
 */
 	if (register_client(cli) != 0) {
-		LDEBUG(">> EXIT");
+		LDEBUG("<< EXIT");
 		return Py_False;
 	}
-	LDEBUG(">> EXIT");
+	LDEBUG("<< EXIT");
 	return Py_True;
 }
 
@@ -514,8 +529,10 @@ static PyMethodDef EvhttpMethods[] = {
     {"wsgi_cb", py_add_wsgi_cb, METH_VARARGS, "Add an uri and his wsgi callback in the list of uri to watch"},
     {"wsgi_gen_cb", py_set_gen_wsgi_cb, METH_VARARGS, "Set the generic wsgi callback"},
     {"parse_query", py_parse_query, METH_VARARGS, "parse query into dictionary"},
-    {"set_debug", py_set_debug, METH_VARARGS, "Set the debug level"},
-    {"get_debug", py_get_debug, METH_VARARGS, "Get the debug level"},
+    {"set_debug", py_set_debug, METH_VARARGS, "Set the debug level (deprecated: use set_log_level instead)"},
+    {"get_debug", py_get_debug, METH_VARARGS, "Get the debug level (deprecated: use get_log_level instead)"},
+    {"set_log_level", py_set_log_level, METH_VARARGS, "Set log level (syslog levels)"},
+    {"get_log_level", py_get_log_level, METH_VARARGS, "Get log level (syslog levels)"},
     {"libev_version", py_libev_version, METH_VARARGS, "Get the libev's ABI version you are using"},
     {"add_timer", py_add_timer_cb, METH_VARARGS, "Add a timer"},
     {"stop_timer", py_stop_timer, METH_VARARGS, "Stop a running timer"},

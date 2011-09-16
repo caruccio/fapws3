@@ -1,3 +1,4 @@
+// vim: ts=4
 #define SYSLOG_NAMES
 #include <time.h>
 #include <stdio.h>
@@ -180,27 +181,25 @@ static const char* priority_name(unsigned int prio)
 	return NULL;
 }
 
-void log_debug(unsigned int prio, const char* file, const char* func, int line, const char* fmt, ...)
+void log_mesg(unsigned int prio, const char* file, const char* func, int line, const char* fmt, ...)
 {
-	char mesg[1024];
 	va_list va;
-
-	if (!file)
-		file = "<no-file>";
-
-	if (!func)
-		func = "<no-function>";
-
-	if (!fmt)
-		fmt = "<no-message>";
-
-	va_start(va, fmt);
-	vsnprintf(mesg, sizeof(mesg), fmt, va);
-	va_end(va);
-
+	char mesg[512];
 	FILE* fp = stderr; //future will log to file/syslog/whatever
 	const char *prio_name = priority_name(prio) ? : "";
-	const int ret = fprintf(fp, "%s: %s:%s:%i %s", prio_name, file, func, line, mesg);
-	if (ret > 0 && mesg[ret] != '\n')
-		fprintf(fp, "\n");
+	int ret = -1;
+
+	va_start(va, fmt);
+	ret = vsnprintf(mesg, sizeof(mesg), fmt?:"", va);
+	va_end(va);
+
+	if (ret < sizeof(mesg) - 1 && ret > 0 && mesg[ret -1 ] != '\n') {
+		mesg[ret - 1] = '\n';
+		mesg[ret] = '\0';
+	}
+
+	if (!file && !func && line == -1)
+		ret = fprintf(fp, "%s -- %s", prio_name, mesg);
+	else
+		ret = fprintf(fp, "%s [%s%s%s%s%i] -- %s", prio_name, file?:"", file&&func?":":"", func?:"", line>-1?"#":"", line>-1?line:"", mesg);
 }
