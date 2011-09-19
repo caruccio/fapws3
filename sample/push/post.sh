@@ -14,4 +14,4 @@ post_data="
  \"dtCreated\":\"$date\"
 }"
 
-curl -v "http://localhost:8080/broadcast/pub?ch=$channel&m=$id&t=$date&to=60" -d "rt_message=$post_data"
+curl -v "http://localhost:8080/broadcast/pub" -d "ch=$channel&m=$id&t=$date&to=60&rt_message=$post_data"

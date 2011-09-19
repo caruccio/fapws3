@@ -385,7 +385,9 @@ def start(no=0, shared=None):
 			return ['invalid method. Expected POST.']
 
 		try:
-			qs = urlparse.parse_qs(environ['QUERY_STRING'])
+			#print environ['rt_message']
+			#qs = urlparse.parse_qs(environ['fapws.params'])
+			qs = environ['fapws.params']
 			_ch = qs['ch'][0]           # channel name
 			_m = int(qs['m'][0])        # message id
 			_t = qs['t'][0]             # fetch mode
