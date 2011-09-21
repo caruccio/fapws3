@@ -92,6 +92,14 @@ void close_connection(struct client *cli)
 	LDEBUG("<< EXIT");
 }
 
+void close_cb(struct ev_loop *loop, struct ev_io *w, int revents)
+{
+	struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_close)));
+	LDEBUG(">> ENTER close_cb cli=%p", cli);
+	close_connection(cli);
+	ev_io_stop(EV_A_ w);
+	LDEBUG("<< EXIT close_cb cli=%p", cli);
+}
 
 void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
@@ -113,6 +121,9 @@ void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	}
 
 	ev_timer_stop(loop, w);
+	//close_connection(cli);
+	ev_io_init(&cli->ev_close, close_cb, cli->fd, EV_WRITE);
+	ev_io_start(loop, &cli->ev_write);
 	LDEBUG("<< EXIT");
 }
 
@@ -344,7 +355,8 @@ int python_handler(struct client *cli)
     Py_DECREF(pyarglist);
     Py_XDECREF(cli->wsgi_cb);
 	if (defer_response == 1) {
-		register_client(cli);
+		if (register_client(cli) == -1)
+			return -500;
 		return 2;
 	} else if (cli->response_content!=NULL)
     {
@@ -414,14 +426,6 @@ int python_handler(struct client *cli)
     Py_XDECREF(pyenviron);
 	LDEBUG("<< EXIT cli=%p", cli);
     return 1;
-}
-
-void close_cb(struct ev_loop *loop, struct ev_io *w, int revents)
-{
-	struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_write)));
-	LDEBUG(">> ENTER close_cb cli=%p", cli);
-	close_connection(cli);
-	LDEBUG("<< EXIT close_cb cli=%p", cli);
 }
 
 /*

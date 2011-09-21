@@ -11,6 +11,7 @@ struct client
 	int fd;
 	ev_io ev_write;
 	ev_io ev_read;
+	ev_io ev_close;
 	char *remote_addr;
 	int remote_port;
 	char *input_header;

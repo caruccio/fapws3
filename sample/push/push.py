@@ -130,7 +130,7 @@ class MessageStream(list):
 # Channel is an aggregator for subscribers and messages
 #######################################################
 class Channel:
-	def_timeout = 2.0
+	def_timeout = 0.1
 
 	def __init__(self, name, timeout):
 		self.name = name

@@ -9,7 +9,7 @@ static struct client* _current_client = NULL;
 	TODO: Clearly we need a fast rbtree to store clients.
 	Also it would be much better to store in a known struct and expose it to python as a class.
 */
-static struct client* _clients[100000];
+static struct client* _clients[10000000];
 
 struct client* set_current_client(struct client* cli)
 {
@@ -59,6 +59,10 @@ LDEBUG("<< EXIT");
 static int _saved = 0;
 int register_client(struct client *cli)
 {
+	if (_saved >= (sizeof(_clients) / sizeof(struct client* ))) {
+		return -1;
+	}
+
 	if (cli->py_client)
 		Py_INCREF(cli->py_client);
 
