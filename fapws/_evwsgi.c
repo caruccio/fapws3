@@ -149,6 +149,12 @@ static PyObject *py_run_loop(PyObject *self, PyObject *args)
     ev_io accept_watcher;
     ev_signal signal_watcher, signal_watcher2, signal_watcher3;
     struct TimerObj *timer;
+
+	if (init_client() != 0) {
+		PyErr_SetString(ServerError, "Failed to initialize client struct.");
+		return NULL;
+	}
+
     loop = ev_default_loop (0);
     switch (ev_backend(loop))
     {
@@ -185,6 +191,7 @@ static PyObject *py_run_loop(PyObject *self, PyObject *args)
         }
     }
     ev_loop (loop, 0);
+	terminate_client();
     return Py_None;
 }
 

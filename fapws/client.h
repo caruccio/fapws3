@@ -8,10 +8,10 @@ Structure we use for each client's connection.
 */
 struct client
 {
-	int fd;
 	ev_io ev_write;
 	ev_io ev_read;
 	ev_io ev_close;
+	int fd;
 	char *remote_addr;
 	int remote_port;
 	char *input_header;
@@ -33,6 +33,8 @@ struct client
 	PyObject* py_client; //python instance of class Client
 };
 
+int init_client(void);
+void terminate_client(void);
 struct client* set_current_client(struct client* cli);
 struct client* get_current_client(void);
 int register_client(struct client *cli);
