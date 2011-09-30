@@ -447,12 +447,8 @@ PyObject *py_write_response(PyObject *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, "OO", &py_client, &py_message))
 		return NULL;
 
-	struct client *cli = get_client(py_client);
-	if (!cli) {
-		//Py_INCREF(pyenviron);
-		//Py_INCREF(pystart_response);
-		//cli = get_current_client();
-		//save_client(cli, pyenviron, pystart_response);
+	struct client *cli = ((struct client*) (((char*)py_client) - offsetof(struct client,py_client)));
+	if (!has_client(cli)) {
 		LERROR("py_write_response: unknown client %p", py_client);
 		return NULL;
 	}
@@ -469,7 +465,7 @@ PyObject *py_write_response(PyObject *self, PyObject *args)
 	cli->response_header_length = strlen(cli->response_header);
 	Py_DECREF(pydummy);
 	Py_INCREF(py_message);
-	unregister_client(py_client);
+	unregister_client(cli);
 	cli->response_content = py_message;
 	ev_io_init(&cli->ev_write, write_response_cb, cli->fd,EV_WRITE);
 	ev_io_start(loop, &cli->ev_write);
@@ -519,16 +515,6 @@ PyObject *py_register_client(PyObject *self, PyObject *args)
 	return Py_True;
 }
 
-PyObject *py_close_client(PyObject *self, PyObject *args)
-{
-	PyObject *py_client;
-	if (!PyArg_ParseTuple(args, "O", &py_client))
-		return Py_False;
-
-	close_client(py_client);
-	return Py_True;
-}
-
 static PyMethodDef EvhttpMethods[] = {
     {"start", py_ev_start, METH_VARARGS, "Define evhttp sockets"},
     {"set_base_module", py_set_base_module, METH_VARARGS, "set you base module"},
@@ -549,7 +535,6 @@ static PyMethodDef EvhttpMethods[] = {
     {"rfc1123_date", py_rfc1123_date, METH_VARARGS, "trasnform a time (in sec) into a string compatible with the rfc1123"},
     {"write_response", py_write_response, METH_VARARGS, "Write response to waiting client"},
     {"register_client", py_register_client, METH_VARARGS, "Register client and put it to wait"},
-    {"close_client", py_close_client, METH_VARARGS, "Close client"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

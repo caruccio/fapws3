@@ -130,7 +130,7 @@ class MessageStream(list):
 # Channel is an aggregator for subscribers and messages
 #######################################################
 class Channel:
-	def_timeout = 0.1
+	def_timeout = 3
 
 	def __init__(self, name, timeout):
 		self.name = name
@@ -415,13 +415,12 @@ def start(no=0, shared=None):
 	#	cpool.expire(time.time())
 
 	def do_timeout(client):
-		print 'Client timeout'
-		evwsgi.close_client(client)
+		print 'python client timeout', client
+		#evwsgi.close_client(client)
 
 	evwsgi.wsgi_cb(('/broadcast/sub', subscribe))
 	evwsgi.wsgi_cb(('/broadcast/pub', publish))
 
-	evwsgi.set_debug(1)
 	evwsgi.run()
 
 ######################
@@ -457,6 +456,7 @@ def fork_main(child_no=1):
 # start WSGI
 #############################
 def main():
+	evwsgi.set_log_level(7)
 	evwsgi.start('0.0.0.0', '8080')
 	evwsgi.set_base_module(base)
 	start()

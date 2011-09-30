@@ -194,8 +194,8 @@ void log_mesg(unsigned int prio, const char* file, const char* func, int line, c
 	va_end(va);
 
 	if (ret < sizeof(mesg) - 1 && ret > 0 && mesg[ret -1 ] != '\n') {
-		mesg[ret - 1] = '\n';
-		mesg[ret] = '\0';
+		mesg[ret] = '\n';
+		mesg[ret+1] = '\0';
 	}
 
 	if (!file && !func && line == -1)

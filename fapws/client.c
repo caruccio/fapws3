@@ -18,21 +18,21 @@ static int compare_client(const void* a, const void* b, const void* c)
 	const struct client* ca = (const struct client*)a;
 	const struct client* cb = (const struct client*)b;
 
-	if (ca && cb) {
-		return (ca->py_client < cb->py_client) ? -1 :
-	       (ca->py_client > cb->py_client) ?  1 :
-	       0;
-	}
-	return -1;
+	LDEBUG("a=%p   b=%p\n", a, b);
+	LDEBUG("ca=%p cb=%p\n", ca?ca->py_client:0, cb?cb->py_client:0);
+
+	if (ca == NULL || ca->py_client < cb->py_client) return -1;
+	if (cb == NULL || ca->py_client > cb->py_client) return 1;
+	return 0;
 }
 
 void terminate_client(void)
 {
 	if (rb) {
-		struct client* cli;
-		for (cli = (struct client*)rblookup(RB_LUFIRST, NULL, rb); cli != NULL; cli = (struct client*)rblookup(RB_LUNEXT, cli, rb)) {
-			Py_XDECREF(cli->py_client);
-		}
+//		struct client* cli;
+//		for (cli = (struct client*)rblookup(RB_LUFIRST, NULL, rb); cli != NULL; cli = (struct client*)rblookup(RB_LUNEXT, cli, rb)) {
+//			Py_XDECREF(cli->py_client);
+//		}
 		rbdestroy(rb);
 	}
 	rb = NULL;
@@ -50,58 +50,57 @@ int init_client(void)
 	return 0;
 }
 
-//static int _saved = 0;
+static void dump(void)
+{
+	const struct client* cli;
+	printf("[");
+	for (cli = (const struct client*)rblookup(RB_LUFIRST, NULL, rb); cli != NULL; cli = (const struct client*)rblookup(RB_LUNEXT, cli, rb))
+		printf("%p ", cli);
+	printf("]\n");
+}
+
 int register_client(struct client *cli)
 {
-	struct client* c = get_client(cli->py_client);
-
-	if (!c) {
-		if ((c = (struct client*)rbsearch((void *)cli, rb)) == NULL) {
+	LDEBUG("register_client %p", cli);
+	if (has_client(cli) == 0) {
+		if ((cli = (struct client*)rbsearch((void *)cli, rb)) == NULL) {
 			return -1;
 		}
+//		Py_INCREF(cli->py_client);
 	}
 
-	if (cli->py_client)
-		Py_INCREF(cli->py_client);
-
-	LDEBUG("register client %p (%p)", cli, cli?cli->py_client:NULL);
+	LDEBUG("register_client %p (%p)", cli, cli?cli->py_client:NULL);
+//	dump();
 	return 0;
 }
 
-void unregister_client(PyObject *py_client)
+void unregister_client(struct client* cli)
 {
-	struct client* cli = (struct client*)rblookup(RB_LUEQUAL, py_client, rb);
-
-	if (cli) {
-		LDEBUG("unregister client %p (%p)", cli, py_client);
+	LDEBUG("unregister_client %p", cli);
+	if (rblookup(RB_LUEQUAL, cli, rb)) {
+		LDEBUG("unregister client %p (%p)", cli, cli->py_client);
 		rbdelete(cli, rb);
-		Py_XDECREF(cli->py_client);
+//		Py_XDECREF(cli->py_client);
 	}
-
-	//struct client* cli = get_client(py_client);
 }
 
-struct client* get_client(PyObject *py_client)
+int has_client(const struct client *cli)
 {
-	return rblookup(RB_LUEQUAL, NULL, rb);
-}
-
-void close_client(PyObject* py_client)
-{
-	struct client* cli = get_client(py_client);
-	if (cli)
-		close_connection(cli);
+	LDEBUG("has_client %p", cli);
+	return rblookup(RB_LUEQUAL, cli, rb) == NULL ? 0 : 1;
 }
 
 struct client* set_current_client(struct client* cli)
 {
+	LDEBUG("set_current_client %p", cli);
 	struct client* last = _current_client;
-	 _current_client = cli;
+	_current_client = cli;
 	return last;
 }
 
 struct client* get_current_client(void)
 {
+	LDEBUG("get_current_client %p", _current_client);
 	return _current_client;
 }
 

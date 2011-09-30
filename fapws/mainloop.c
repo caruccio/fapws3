@@ -78,12 +78,9 @@ void close_connection(struct client *cli)
     free(cli->cmd);
     free(cli->uri);
     free(cli->uri_path);
-    Py_XDECREF(cli->py_client);
+//    Py_XDECREF(cli->py_client);
     Py_XDECREF(cli->response_content);
-    if (cli->response_content_obj!=NULL)
-    {
-        Py_XDECREF(cli->response_content_obj);
-    }
+    Py_XDECREF(cli->response_content_obj);
     if (cli->response_fp){
         //free(cli->response_fp);
     }
@@ -96,6 +93,7 @@ void close_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 {
 	struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_close)));
 	LDEBUG(">> ENTER close_cb cli=%p", cli);
+	unregister_client(cli);
 	close_connection(cli);
 	ev_io_stop(EV_A_ w);
 	LDEBUG("<< EXIT close_cb cli=%p", cli);
@@ -111,19 +109,20 @@ void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	if (tout->py_cb) {
 		LDEBUG("calling %p(%p)", tout->py_cb, cli->py_client);
 		PyObject *pyarglist = Py_BuildValue("(O)",  cli->py_client);
-		cli->response_content = PyEval_CallObject(tout->py_cb, pyarglist);
+		PyObject *o = PyEval_CallObject(tout->py_cb, pyarglist);
+		Py_DECREF(o);
 		Py_DECREF(pyarglist);
-	} else {
+/*	} else {
 		LDEBUG("calling %p(%p", tout->py_cb, cli->py_client);
 		PyObject *py_cb = PyObject_GetAttrString(cli->py_client, "timeout_cb");
 		PyEval_CallFunction(py_cb, "O", cli->py_client);
-		Py_XDECREF(py_cb);
-	}
+		Py_DECREF(py_cb);
+*/	}
 
 	ev_timer_stop(loop, w);
 	//close_connection(cli);
 	ev_io_init(&cli->ev_close, close_cb, cli->fd, EV_WRITE);
-	ev_io_start(loop, &cli->ev_write);
+	ev_io_start(loop, &cli->ev_close);
 	LDEBUG("<< EXIT");
 }
 
@@ -355,8 +354,8 @@ int python_handler(struct client *cli)
     Py_DECREF(pyarglist);
     Py_XDECREF(cli->wsgi_cb);
 	if (defer_response == 1) {
-		if (register_client(cli) == -1)
-			return -500;
+//		if (register_client(cli) == -1)
+//			return -500;
 		return 2;
 	} else if (cli->response_content!=NULL)
     {
@@ -789,7 +788,6 @@ void connection_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 /*
 This is the accept call back registered in the event loop
 */
-static int id = 99;
 void accept_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 {
     int client_fd;
@@ -835,8 +833,8 @@ This is the sigint callback registered in the event loop
 */
 void sigint_cb(struct ev_loop *loop, ev_signal *w, int revents)
 {
+	ev_unloop(loop, EVUNLOOP_ALL);
 	LDEBUG("SIGINT: bye");
-    ev_unloop(loop, EVUNLOOP_ALL);
 }
 
 /*
@@ -844,8 +842,8 @@ This is the sigterm callback registered in the event loop
 */
 void sigterm_cb(struct ev_loop *loop, ev_signal *w, int revents)
 {
+	ev_unloop(loop, EVUNLOOP_ALL);
 	LDEBUG("SIGTERM: bye");
-    ev_unloop(loop, EVUNLOOP_ALL);
 }
 
 
