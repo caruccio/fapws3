@@ -13,21 +13,22 @@ static struct client* _current_client = NULL;
 //static struct client* _clients[10000000];
 static struct rbtree *rb;
 
-static int compare_client(const void* a, const void* b, const void* c)
+static int compare_client(const void *a, const void *b, const void *c)
 {
-	const struct client* ca = (const struct client*)a;
-	const struct client* cb = (const struct client*)b;
+	const PyObject *pycli = (const PyObject *)a;
+	const struct client* cli = (const struct client*)b;
 
-	LDEBUG("a=%p   b=%p\n", a, b);
-	LDEBUG("ca=%p cb=%p\n", ca?ca->py_client:0, cb?cb->py_client:0);
+	LDEBUG("   a=%p   b=%p/%p\n", pycli, cli, cli->py_client);
+//	LDEBUG("a=%p/%p b=%p/%p\n", ca, ca?ca->py_client:0, cb, cb?cb->py_client:0);
 
-	if (ca == NULL || ca->py_client < cb->py_client) return -1;
-	if (cb == NULL || ca->py_client > cb->py_client) return 1;
+	if (pycli < cli->py_client) return -1;
+	if (pycli > cli->py_client) return 1;
 	return 0;
 }
 
 void terminate_client(void)
 {
+	LDEBUG("destroy rbtree");
 	if (rb) {
 //		struct client* cli;
 //		for (cli = (struct client*)rblookup(RB_LUFIRST, NULL, rb); cli != NULL; cli = (struct client*)rblookup(RB_LUNEXT, cli, rb)) {
@@ -84,7 +85,7 @@ void unregister_client(struct client* cli)
 	}
 }
 
-int has_client(const struct client *cli)
+struct client *get_client(const PyObject *py_client)
 {
 	LDEBUG("has_client %p", cli);
 	return rblookup(RB_LUEQUAL, cli, rb) == NULL ? 0 : 1;

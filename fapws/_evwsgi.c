@@ -447,8 +447,9 @@ PyObject *py_write_response(PyObject *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, "OO", &py_client, &py_message))
 		return NULL;
 
-	struct client *cli = ((struct client*) (((char*)py_client) - offsetof(struct client,py_client)));
-	if (!has_client(cli)) {
+//	struct client *cli = ((struct client*) (((char*)py_client) - offsetof(struct client,py_client)));
+	struct client *cli = get_client(py_client);
+	if (!cli) {
 		LERROR("py_write_response: unknown client %p", py_client);
 		return NULL;
 	}

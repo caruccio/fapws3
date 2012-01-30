@@ -39,5 +39,5 @@ struct client* set_current_client(struct client* cli);
 struct client* get_current_client(void);
 int register_client(struct client *cli);
 void unregister_client(struct client *cli);
-int has_client(const struct client* cli);
+struct client *get_client(const PyObject *py_client);
 int set_client_timer(struct client* cli, float timeout, PyObject* py_cb);
