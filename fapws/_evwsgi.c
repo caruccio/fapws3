@@ -67,6 +67,11 @@ PyObject *pydeferqueue;  //initialisation of defer
 ev_idle *idle_watcher;
 static PyObject *ServerError;
 
+static void on_sigsegv(int n)
+{
+	abort();
+}
+
 /*
 Procedure exposed in Python will establish the socket and the connection.
 */
@@ -180,6 +185,7 @@ static PyObject *py_run_loop(PyObject *self, PyObject *args)
     ev_signal_start(loop, &signal_watcher2);
     ev_signal_init(&signal_watcher3, sigterm_cb, SIGTERM);
     ev_signal_start(loop, &signal_watcher3);
+	signal(SIGSEGV, on_sigsegv);
     idle_watcher = malloc(sizeof(ev_idle));
     ev_idle_init(idle_watcher, idle_cb);
     if (list_timers_i>=0)
