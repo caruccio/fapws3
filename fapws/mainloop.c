@@ -111,7 +111,7 @@ void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 		PyObject *pyarglist = Py_BuildValue("(O)",  cli->py_client);
 		PyObject *o = PyEval_CallObject(tout->py_cb, pyarglist);
 		Py_DECREF(o);
-		Py_DECREF(pyarglist);
+		Py_XDECREF(pyarglist);
 /*	} else {
 		LDEBUG("calling %p(%p", tout->py_cb, cli->py_client);
 		PyObject *py_cb = PyObject_GetAttrString(cli->py_client, "timeout_cb");
@@ -120,9 +120,13 @@ void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 */	}
 
 	ev_timer_stop(loop, w);
+	ev_io_stop(EV_A_ &cli->ev_write);
+	ev_io_stop(EV_A_ &cli->ev_read);
 	//close_connection(cli);
-	ev_io_init(&cli->ev_close, close_cb, cli->fd, EV_WRITE);
-	ev_io_start(loop, &cli->ev_close);
+	unregister_client(cli);
+	close_connection(cli);
+	//ev_io_init(&cli->ev_close, close_cb, cli->fd, EV_WRITE);
+	//ev_io_start(loop, &cli->ev_close);
 	LDEBUG("<< EXIT");
 }
 
@@ -461,7 +465,7 @@ int write_cli(struct client *cli, char *response, size_t len,  int revents)
                     return 0; //stop the watcher and close the connection
                 }
                 // XXX We shouldn't sleep in an event-base server.
-                usleep(100000);  //failed but we don't want to close the watcher
+                usleep(10000);  //failed but we don't want to close the watcher
             }
             if ((int)r==0)
             {
@@ -495,7 +499,7 @@ void write_cb(struct ev_loop *loop, struct ev_io *w, int revents)
     struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_write)));
 	LDEBUG(">> ENTER cli=%p iter=%i", cli, cli->response_iter_sent);
     if (cli->response_iter_sent==-2)
-    { 
+    {
 		set_current_client(cli);
 		//we must send an header or an error
 		ret=python_handler(cli); //look for python callback and execute it
@@ -690,14 +694,17 @@ void write_response_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 	struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_write)));
 
 	LDEBUG(">> ENTER cli=%p", cli);
-
-	write_cli(cli, cli->response_header, cli->response_header_length, revents);
-	cli->response_iter_sent++; //-1: header sent
-	LDEBUG("cli=%p iter=%i", cli, cli->response_iter_sent);
-
 	ev_io_stop(EV_A_ w);
-	ev_io_init(&cli->ev_write,write_cb,cli->fd,EV_WRITE);
-	ev_io_start(loop,&cli->ev_write);
+
+	if (!write_cli(cli, cli->response_header, cli->response_header_length, revents)) {
+		close_connection(cli);
+	} else {
+		cli->response_iter_sent++; //-1: header sent
+		LDEBUG("cli=%p iter=%i", cli, cli->response_iter_sent);
+
+		ev_io_init(&cli->ev_write,write_cb,cli->fd,EV_WRITE);
+		ev_io_start(loop,&cli->ev_write);
+	}
 	LDEBUG("<< EXIT");
 }
 /*
@@ -813,6 +820,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *w, int revents)
     cli->response_content=NULL;
     cli->response_content_obj=NULL;
     cli->py_client = NULL;
+    cli->id = 0;
     cli->input_pos=0;
     cli->retry=0;
     cli->response_iter_sent=-2;

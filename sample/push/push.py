@@ -130,14 +130,14 @@ class MessageStream(list):
 # Channel is an aggregator for subscribers and messages
 #######################################################
 class Channel:
-	def_timeout = 3
+	def_timeout = 60
 
 	def __init__(self, name, timeout):
 		self.name = name
 		self.subs = dict() # Subscribers for this channel
 		self.stream = MessageStream()
 		self.timeout = timeout
-		print '+ Channel %s' % self
+		print '+ Channel name=%s, tout=%s %s' % (self.name, self.timeout, self)
 
 	def __len__(self):
 		return len(self.stream)
@@ -182,7 +182,7 @@ class Channel:
 
 	def subscribe(self, client):
 		print 'Channel> subscribe %s' % client
-		self.subs[len(self.subs)] = client
+		self.subs[client.id()] = client
 		evwsgi.register_client(client)
 
 	def send_message(self, client, message):
@@ -229,7 +229,7 @@ class ChannelPool:
 		print '+ ChannelPool %s' % self
 
 	def create_channel(self, name, timeout=Channel.def_timeout):
-		print 'ChannelPool> create_channel %s' % name
+		print 'ChannelPool> create_channel name=%s tout=%s' % (name, timeout)
 		try:
 			return self.pool[name]
 		except:
@@ -270,7 +270,7 @@ def start(no=0, shared=None):
 			return [str(mesgs)]
 		else:
 			# mesg not found, subscribe this client
-			ch.subscribe(base.Client(environ, start_response))
+			ch.subscribe(base.Client(environ, start_response, ch))
 			return True
 
 	# Subscriber handler
@@ -311,7 +311,7 @@ def start(no=0, shared=None):
 				else:
 					# mesg not found, subscribe this client
 					print 'Go subscribe...'
-					ch.subscribe(base.Client(environ, start_response, timeout_cb=do_timeout, timeout=Channel.def_timeout))
+					ch.subscribe(base.Client(environ, start_response, ch, timeout_cb=do_timeout, timeout=ch.timeout))
 					return True
 			elif _s == 'F':
 				return return_mesgs(ch.get_message_oldest(int(qs['m'][0])), ch, environ, start_response)
@@ -320,14 +320,14 @@ def start(no=0, shared=None):
 			elif _s == 'A':
 				return return_mesgs(ch.get_message_all(), ch, environ, start_response)
 			else:
-				start_response('400 Bad request', [('Content-Type','text/plain')])
+				start_response('400 Bad Request', [('Content-Type','text/plain')])
 				return ['invalid parameter: s=%s' % _s]
 		except HttpStatus, ex:
 			start_response('%s' % ex.status, [('Content-Type','text/plain')])
 			return ['invalid parameter: %s' % ex]
 		except Exception, ex:
-			start_response('400 Bad request', [('Content-Type','text/plain')])
-			return ['invalid parameter: %s' % ex]
+			start_response('500 Internal Error', [('Content-Type','text/plain')])
+			return ['%s' % ex]
 			
 
 #		print 'python: on_get', client
@@ -416,6 +416,7 @@ def start(no=0, shared=None):
 
 	def do_timeout(client):
 		print 'python client timeout', client
+		client.channel.subs.pop(client.id(), None)
 		#evwsgi.close_client(client)
 
 	evwsgi.wsgi_cb(('/broadcast/sub', subscribe))

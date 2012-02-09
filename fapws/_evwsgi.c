@@ -453,6 +453,7 @@ PyObject *py_write_response(PyObject *self, PyObject *args)
 		LERROR("py_write_response: unknown client %p", py_client);
 		return NULL;
 	}
+	ev_timer_stop(loop, &cli->tout.timerwatcher);
 	LDEBUG("py_write_response %p", cli);
 
 	PyObject *o = PyList_GetItem(py_message, 0);

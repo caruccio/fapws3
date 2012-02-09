@@ -8,6 +8,7 @@ Structure we use for each client's connection.
 */
 struct client
 {
+	long id; //py_client.id()
 	ev_io ev_write;
 	ev_io ev_read;
 	ev_io ev_close;
@@ -39,5 +40,6 @@ struct client* set_current_client(struct client* cli);
 struct client* get_current_client(void);
 int register_client(struct client *cli);
 void unregister_client(struct client *cli);
-struct client *get_client(const PyObject *py_client);
+struct client *get_client(PyObject *py_client);
 int set_client_timer(struct client* cli, float timeout, PyObject* py_cb);
+long get_py_client_id(PyObject *py_client);
