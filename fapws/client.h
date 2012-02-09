@@ -11,7 +11,6 @@ struct client
 	long id; //py_client.id()
 	ev_io ev_write;
 	ev_io ev_read;
-	ev_io ev_close;
 	int fd;
 	char *remote_addr;
 	int remote_port;

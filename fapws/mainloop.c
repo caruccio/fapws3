@@ -89,18 +89,6 @@ void close_connection(struct client *cli)
 	LDEBUG("<< EXIT");
 }
 
-void close_cb(struct ev_loop *loop, struct ev_io *w, int revents)
-{
-	struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_close)));
-	LDEBUG(">> ENTER close_cb cli=%p", cli);
-	unregister_client(cli);
-	close_connection(cli);
-	ev_io_stop(EV_A_ &cli->ev_write);
-	ev_io_stop(EV_A_ &cli->ev_read);
-	ev_io_stop(EV_A_ w);
-	LDEBUG("<< EXIT close_cb cli=%p", cli);
-}
-
 void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
 	struct TimerObj *tout = ((struct TimerObj*) (((char*)w) - offsetof(struct TimerObj, timerwatcher)));
@@ -127,8 +115,6 @@ void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	//close_connection(cli);
 	unregister_client(cli);
 	close_connection(cli);
-	//ev_io_init(&cli->ev_close, close_cb, cli->fd, EV_WRITE);
-	//ev_io_start(loop, &cli->ev_close);
 	LDEBUG("<< EXIT");
 }
 
