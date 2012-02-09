@@ -456,8 +456,8 @@ def fork_main(child_no=1):
 #############################
 # start WSGI
 #############################
-def main():
-	evwsgi.set_log_level(7)
+def main(log_level=3):
+	evwsgi.set_log_level(log_level)
 	evwsgi.start('0.0.0.0', '8080')
 	evwsgi.set_base_module(base)
 	start()
@@ -503,11 +503,17 @@ def unittest():
 if __name__ == '__main__':
 	import sys
 
-	if len(sys.argv) > 1 and sys.argv[1] == '--unittest':
+	if '--unittest' in sys.argv:
 		unittest()
 		sys.exit(0)
 
-	main()
+	try:
+		log_level = int(sys.argv[sys.argv.index('-l') + 1])
+	except ValueError:
+		log_level = 3
+
+	main(log_level)
+
 #	import sys
 #	if use_posh == True:
 #		print 'install posh module to enable shared objects between child process: http://poshmodule.sourceforge.net/'
