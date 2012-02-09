@@ -201,5 +201,5 @@ void log_mesg(unsigned int prio, const char* file, const char* func, int line, c
 	if (!file && !func && line == -1)
 		ret = fprintf(fp, "%s -- %s", prio_name, mesg);
 	else
-		ret = fprintf(fp, "%s [%s%s%s%s%i] -- %s", prio_name, file?:"", file&&func?":":"", func?:"", line>-1?"#":"", line>-1?line:"", mesg);
+		ret = fprintf(fp, "%s [%s%s%s%s%i] -- %s", prio_name, file?:"", file&&func?":":"", func?:"", line>-1?"#":"", line>-1?line:-1, mesg);
 }

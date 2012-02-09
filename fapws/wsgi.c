@@ -316,6 +316,8 @@ PyObject * header_to_dict (struct client *cli)
      case s_body:
          set_char(buf, data, i, &j);
          break;
+		default:
+			break;
      }
    }
 
