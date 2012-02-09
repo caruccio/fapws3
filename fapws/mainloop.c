@@ -95,6 +95,8 @@ void close_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 	LDEBUG(">> ENTER close_cb cli=%p", cli);
 	unregister_client(cli);
 	close_connection(cli);
+	ev_io_stop(EV_A_ &cli->ev_write);
+	ev_io_stop(EV_A_ &cli->ev_read);
 	ev_io_stop(EV_A_ w);
 	LDEBUG("<< EXIT close_cb cli=%p", cli);
 }
