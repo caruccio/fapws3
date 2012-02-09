@@ -26,15 +26,15 @@ class HttpStatus:
 		303: 'Method',
 		304: 'Not Modified',
 		# 4xx 5xx Error
-		400: 'Bad request',
+		400: 'Bad Request',
 		401: 'Unauthorized',
 		402: 'Payment Required',
 		403: 'Forbidden',
-		404: 'Not found',
+		404: 'Not Found',
 		500: 'Internal Error',
-		501: 'Not implemented',
-		502: 'Service temporarily overloaded',
-		503: 'Gateway timeout',
+		501: 'Not Implemented',
+		502: 'Service Temporarily Overloaded',
+		503: 'Gateway Timeout',
 	}
 
 	def __init__(self, code):
@@ -324,7 +324,7 @@ def start(no=0, shared=None):
 				return ['invalid parameter: s=%s' % _s]
 		except HttpStatus, ex:
 			start_response('%s' % ex.status, [('Content-Type','text/plain')])
-			return ['invalid parameter: %s' % ex]
+			return ['%s' % ex if ex.code != 204 else '']
 		except Exception, ex:
 			start_response('500 Internal Error', [('Content-Type','text/plain')])
 			return ['%s' % ex]
