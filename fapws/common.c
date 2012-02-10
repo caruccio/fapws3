@@ -8,7 +8,7 @@ PyObject* load_py_object(PyObject* module, const char* name)
 {
 	PyObject* o = PyObject_GetAttrString(module, name);
 	if (!o) {
-		LERROR("Unable to load python class Environ");
+		LERROR("Unable to load python class %s", name);
 		return NULL;
 	}
 	return o;

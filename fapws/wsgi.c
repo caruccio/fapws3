@@ -423,12 +423,12 @@ int manage_header_body(struct client *cli, PyObject *pyenviron)
     PyObject *pystringio_write=PyObject_GetAttrString(pystringio, "write");
     Py_DECREF(pystringio);
     pydummy = PyBuffer_FromMemory(cli->input_body, content_length);
-    PyObject_CallFunction(pystringio_write, "(O)", pydummy);
+    Py_XDECREF(PyObject_CallFunction(pystringio_write, "(O)", pydummy));
     Py_DECREF(pydummy);
     Py_DECREF(pystringio_write);
     PyObject *pystringio_seek=PyObject_GetAttrString(pystringio, "seek");
     pydummy=PyInt_FromString("0", NULL, 10);
-    PyObject_CallFunction(pystringio_seek, "(O)", pydummy);
+    Py_XDECREF(PyObject_CallFunction(pystringio_seek, "(O)", pydummy));
     Py_DECREF(pydummy);
     Py_DECREF(pystringio_seek);
 

@@ -185,6 +185,11 @@ class Channel:
 		self.subs[client.id()] = client
 		evwsgi.register_client(client)
 
+	def unsubscribe(self, client):
+		print 'Channel> unsubscribe %s' % client
+		self.subs.pop(client.id(), None)
+		print 'Channel> unsubscribe %s - done' % client
+
 	def send_message(self, client, message):
 		print 'Channel> send_message %s - %s' % (client, message)
 		client.start_response('200 OK', [('Content-Type','application/json; charset="ISO-8859-1"')])
@@ -263,6 +268,15 @@ def start(no=0, shared=None):
 	#	print 'Child %i received SIGINT. Exiting...' % no
 	#	posh.exit(0)
 	#signal.signal(signal.SIGINT, on_interrupt)
+
+	def do_timeout(client):
+		print 'do_timeout: ', do_timeout
+##		if len(client.channel.subs) == 1:
+##			evwsgi.die()
+		print 'python client %i timeout (%i)' % (client.id(), len(client.channel.subs))
+		client.channel.unsubscribe(client)
+		print 'remaining %i clients' % len(client.channel.subs)
+		#evwsgi.close_client(client)
 
 	def return_mesgs(mesgs, ch, environ, start_response):
 		if mesgs:
@@ -413,11 +427,6 @@ def start(no=0, shared=None):
 
 	#def clock():
 	#	cpool.expire(time.time())
-
-	def do_timeout(client):
-		print 'python client timeout', client
-		client.channel.subs.pop(client.id(), None)
-		#evwsgi.close_client(client)
 
 	evwsgi.wsgi_cb(('/broadcast/sub', subscribe))
 	evwsgi.wsgi_cb(('/broadcast/pub', publish))

@@ -141,30 +141,10 @@ struct client* get_current_client(void)
 //
 // Timer
 //
-/*static struct TimerObj *create_timer(void)
-{
-	struct TimerObj *t = malloc(sizeof(*t));
-	if (!t)
-		return NULL;
-	memset(&t->timerwatcher, 0, sizeof(t->timerwatcher));
-	t->timeout = 0;
-	t->repeat = 0;
-	t->py_cb = NULL;
-	return t;
-}*/
 
 int set_client_timer(struct client* cli, float timeout, PyObject* py_cb)
 {
 LDEBUG(">> ENTER");
-/*	if (!cli->tout) {
-		if ((cli->tout = create_timer()) == NULL) {
-			LDEBUG("<< EXIT");
-			return -1;
-		}
-	}
-	cli->tout->timeout = timeout;
-	cli->tout->repeat = 0;
-	*/
 	memset(&cli->tout.timerwatcher, 0, sizeof(cli->tout.timerwatcher));
 	cli->tout.timeout = timeout;
 	cli->tout.repeat = 0;

@@ -58,12 +58,12 @@ int setnonblock(int fd)
 
 
 /*
-The procedure call the Environ method called "method" and give pydict has parameter
+The procedure call the Environ method called "method" and give pydict as parameter
 */
 void update_environ(PyObject *pyenviron, PyObject *pydict, char *method)
 {
     PyObject *pyupdate=PyObject_GetAttrString(pyenviron, method);
-    PyObject_CallFunction(pyupdate, "(O)", pydict);
+    Py_XDECREF(PyObject_CallFunction(pyupdate, "(O)", pydict));
     Py_DECREF(pyupdate);
 }
 
@@ -90,8 +90,8 @@ void close_connection(struct client *cli)
 	Py_XDECREF(cli->py_client);
 	Py_XDECREF(cli->response_content);
 	Py_XDECREF(cli->response_content_obj);
-	close(cli->fd);
 	close_timer_obj(&cli->tout);
+	close(cli->fd);
 	xfree(cli);
 	LDEBUG("<< EXIT");
 }
@@ -110,8 +110,7 @@ void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	if (tout->py_cb) {
 		LDEBUG("calling %p(%p)", tout->py_cb, cli->py_client);
 		PyObject *pyarglist = Py_BuildValue("(O)",  cli->py_client);
-		PyObject *o = PyEval_CallObject(tout->py_cb, pyarglist);
-		Py_DECREF(o);
+		Py_XDECREF(PyObject_CallObject(tout->py_cb, pyarglist));
 		Py_DECREF(pyarglist);
 	}
 
@@ -126,7 +125,7 @@ void timer_cb(struct ev_loop *loop, ev_timer *w, int revents)
 {
 	LDEBUG(">> ENTER");
     struct TimerObj *timer= ((struct TimerObj*) (((char*)w) - offsetof(struct TimerObj,timerwatcher)));
-    PyObject *resp = PyEval_CallObject(timer->py_cb, NULL);
+    PyObject *resp = PyObject_CallObject(timer->py_cb, NULL);
     if (resp==NULL)
     {
         if (PyErr_Occurred()) 
@@ -242,7 +241,7 @@ int python_handler(struct client *cli)
     if (!pyenviron)
     {
          LERROR("Failed to create an instance of Environ");
-         abort();
+         return -500;
     }
     //  2)transform headers into a dictionary and send it to environ.update_headers
     pydict=header_to_dict(cli);
@@ -276,11 +275,11 @@ int python_handler(struct client *cli)
         for (index=0; index<max; index++)
         {
             pyitem=PyList_GetItem(pysupportedhttpcmd, index);  // no need to decref pyitem
-            PyString_Concat(&pydummy, PyObject_Str(pyitem));
+            PyString_ConcatAndDel(&pydummy, PyObject_Str(pyitem));
             if (index<max-1)
-               PyString_Concat(&pydummy, PyString_FromString(", "));
+               PyString_ConcatAndDel(&pydummy, PyString_FromString(", "));
         }
-        PyString_Concat(&pydummy, PyString_FromString("\r\nContent-Length: 0\r\n\r\n"));
+        PyString_ConcatAndDel(&pydummy, PyString_FromString("\r\nContent-Length: 0\r\n\r\n"));
         strcpy(cli->response_header,PyString_AsString(pydummy));
         cli->response_header_length=strlen(cli->response_header);
         cli->response_content=PyList_New(0);
@@ -337,7 +336,7 @@ int python_handler(struct client *cli)
 
 	// 8) execute python callbacks with its parameters
 	PyObject *pyarglist = Py_BuildValue("(OO)", pyenviron, pystart_response );
-	cli->response_content = PyEval_CallObject(cli->wsgi_cb,pyarglist);
+	cli->response_content = PyObject_CallObject(cli->wsgi_cb,pyarglist);
 
 	int defer_response = 0;
 	if (cli->response_content != NULL) {
@@ -357,6 +356,7 @@ int python_handler(struct client *cli)
 	if (defer_response == 1) {
 		//if (register_client(cli) == -1)
 		//	return -500;
+//		Py_DECREF(pyenviron);
 		return 2;
 	} else if (cli->response_content != NULL) {
 		PyObject *pydummy = PyObject_Str(pystart_response);
@@ -365,9 +365,12 @@ int python_handler(struct client *cli)
 		Py_DECREF(pydummy);
 	} else  {
 		LERROR("Python error!!!");
-		if (str_append3(cli->response_header,"HTTP/1.0 500 Not found\r\nContent-Type: text/html\r\nServer: ", VERSION, "\r\n\r\n", MAXHEADER)<0) {
-			LDEBUG("ERROR!!!! Response header bigger than foreseen:%i", MAXHEADER);
+		if (snprintf(cli->response_header, sizeof(cli->response_header),
+				"HTTP/1.0 500 Not found\r\nContent-Type: text/html\r\nServer: %s\r\n\r\n", VERSION) >= sizeof(cli->response_header)) {
+			LDEBUG("ERROR!!!! Response header bigger than foreseen:%i", sizeof(cli->response_header));
+			cli->response_header[sizeof(cli->response_header)-1] = 0;
 			LDEBUG("HEADER TOP\n%s\nHEADER BOT", cli->response_header);
+			Py_DECREF(pyenviron);
 			return -1;
 		}
 
@@ -480,12 +483,20 @@ int write_cli(struct client *cli, char *response, size_t len,  int revents)
 
 }
 
+static void write_http_error(struct client *cli, int revents, int http_code, const char *http_status)
+{
+	static char response[MAXHEADER];
+	const size_t len = snprintf(response, sizeof(response),
+				"HTTP/1.0 %i %s\r\nContent-Type: text/html\r\nServer: %s\r\n\r\n<html><head><title>%s</title></head><body><p>%s</p></body></html>",
+				http_code, http_status, VERSION, http_status, http_status);
+	write_cli(cli, response, len, revents);
+}
+
 /*
 This is the write call back registered within the event loop
 */
 void write_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 { 
-    char response[MAXHEADER];
     int stop=0; //0: not stop, 1: stop, 2: stop and call tp close
     int ret; //python_handler return
     struct client *cli= ((struct client*) (((char*)w) - offsetof(struct client,ev_write)));
@@ -497,47 +508,26 @@ void write_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 		ret=python_handler(cli); //look for python callback and execute it
 		set_current_client(NULL);
 		LDEBUG("python returned: %i", ret);
-        if (ret==0)
-        {
-            //uri not found
-            str_append3(response,"HTTP/1.0 500 Not found\r\nContent-Type: text/html\r\nServer: ", VERSION ,"\r\n\r\n<html><head><title>Page not found</head><body><p>Page not found!!!</p></body></html>", MAXHEADER);
-            write_cli(cli,response, strlen(response), revents);
-            stop=1;
-        } 
-        else if (ret==-411)
-        {
-            str_append3(response,"HTTP/1.0 411 Length Required\r\nContent-Type: text/html\r\nServer: ", VERSION, "\r\n\r\n<html><head><title>Length Required</head><body><p>Length Required!!!</p></body></html>", MAXHEADER);
-            write_cli(cli,response, strlen(response), revents);
-            stop=1;
-        }
-        else if (ret==-500)
-        {
-            str_append3(response,"HTTP/1.0 500 Internal Server Error\r\nContent-Type: text/html\r\nServer: ", VERSION, "\r\n\r\n<html><head><title>Internal Server Error</head><body><p>Internal Server Error!!!</p></body></html>", MAXHEADER);
-            write_cli(cli,response, strlen(response), revents);
-            stop=1;
-        }
-        else if (ret==-501)
-        {
-            //problem to parse the request
-            str_append3(response,"HTTP/1.0 501 Not Implemented\r\nContent-Type: text/html\r\nServer: ", VERSION, "\r\n\r\n<html><head><title>Not Implemented</head><body><p>Not Implemented!!!</p></body></html>", MAXHEADER);
-            write_cli(cli,response, strlen(response), revents);
-            stop=1;
-        }
-		else if (ret==2)
-		{
-			//dont want to send response right now.
-			//save environ and start_response to later send
-			stop=0;
-			ev_io_stop(EV_A_ w);
+		stop = 1;
+		switch (ret) {
+			case 0:    write_http_error(cli, revents, 404, "Not Found"); break;
+			case -411: write_http_error(cli, revents, ret * -1, "Length Required"); break;
+			case -500: write_http_error(cli, revents, ret * -1, "Internal Server Error"); break;
+			case -501: write_http_error(cli, revents, ret * -1, "Not Implemented"); break;
+			case 2:
+				//dont want to send response right now.
+				//save environ and start_response to later send
+				stop = 0;
+				ev_io_stop(EV_A_ w);
+				break;
+			default:
+				//uri found, we thus send the html header
+				stop = 0;
+				write_cli(cli, cli->response_header, cli->response_header_length, revents);
+				cli->response_iter_sent++; //-1: header sent
+				LDEBUG("cli=%p iter=%i", cli, cli->response_iter_sent);
 		}
-        else
-        {
-            //uri found, we thus send the html header 
-            write_cli(cli, cli->response_header, cli->response_header_length, revents);
-            cli->response_iter_sent++; //-1: header sent
-			LDEBUG("cli=%p iter=%i", cli, cli->response_iter_sent);
-        }
-    } 
+    }
     else if (strcmp(cli->cmd,"HEAD")==0)
     {
         //we don't send additonal data for a HEAD command
@@ -668,7 +658,7 @@ void write_cb(struct ev_loop *loop, struct ev_io *w, int revents)
         if (PyObject_HasAttrString(cli->response_content, "close"))
         {
             PyObject *pydummy=PyObject_GetAttrString(cli->response_content, "close");
-            PyObject_CallFunction(pydummy, NULL);
+            Py_XDECREF(PyObject_CallFunction(pydummy, NULL));
             Py_DECREF(pydummy);
         }
       }
@@ -680,7 +670,7 @@ void write_cb(struct ev_loop *loop, struct ev_io *w, int revents)
         ev_io_stop(EV_A_ w);
         close_connection(cli);
     }
-	LDEBUG("<< EXIT");
+	LDEBUG("<< EXIT - stop=%i", stop);
 }
 
 void write_response_cb(struct ev_loop *loop, struct ev_io *w, int revents)

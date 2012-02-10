@@ -198,6 +198,8 @@ static PyObject *py_run_loop(PyObject *self, PyObject *args)
     }
     ev_loop (loop, 0);
 	terminate_client();
+	
+	LINFO("Finished fapws");
     return Py_None;
 }
 
@@ -491,6 +493,7 @@ LDEBUG(">> ENTER");
 	float timer = 60;
 	if (py_timer)
 		timer = PyFloat_AsDouble(py_timer);
+	Py_XDECREF(py_timer);
 
 	int r = set_client_timer(cli, timer >= 0 ? timer : 60, PyObject_GetAttrString(py_client, "timeout_cb"));
 	LDEBUG("<< EXIT");
@@ -523,6 +526,14 @@ PyObject *py_register_client(PyObject *self, PyObject *args)
 	return Py_True;
 }
 
+PyObject *py_die(PyObject *a, PyObject *b)
+{
+	a == b;
+	LDEBUG("die");
+	abort();
+	LDEBUG("dead");
+}
+
 static PyMethodDef EvhttpMethods[] = {
     {"start", py_ev_start, METH_VARARGS, "Define evhttp sockets"},
     {"set_base_module", py_set_base_module, METH_VARARGS, "set you base module"},
@@ -543,6 +554,7 @@ static PyMethodDef EvhttpMethods[] = {
     {"rfc1123_date", py_rfc1123_date, METH_VARARGS, "trasnform a time (in sec) into a string compatible with the rfc1123"},
     {"write_response", py_write_response, METH_VARARGS, "Write response to waiting client"},
     {"register_client", py_register_client, METH_VARARGS, "Register client and put it to wait"},
+    {"die", py_die, METH_VARARGS, "Die"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
