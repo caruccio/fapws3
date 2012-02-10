@@ -38,7 +38,7 @@ class HttpStatus:
 	}
 
 	def __init__(self, code):
-		print '+ HttpStatus %i' % code
+		#print '+ HttpStatus %i' % code
 		if HttpStatus.status.has_key(code):
 			self.code = code
 			self.status = '%i %s' % (code, self.status[code])
@@ -92,7 +92,8 @@ class MessageStream(list):
 			# message is way too far from last message. fill with None and append
 			self.extend([ None for x in range(message.mid - len(self)) ])
 			self.append(message)
-		print 'insert:', self
+		#print 'insert:', self
+		#print 'new msg %i' % len(self)
 
 		#print '+ MessageStream: %s' % self
 
@@ -144,7 +145,7 @@ class Channel:
 
 	def get_message(self, mid):
 		'''Retrieve a single message'''
-		print 'Channel> get_message %s' % mid
+		#print 'Channel> get_message %s' % mid
 		if self.stream.has(mid):
 			m = self.stream[mid]
 			if m:
@@ -181,12 +182,12 @@ class Channel:
 		return self.stream.back(count) + [0]
 
 	def subscribe(self, client):
-		print 'Channel> subscribe %s' % client
+		#print 'Channel> subscribe %s' % client
 		self.subs[client.id()] = client
 		evwsgi.register_client(client)
 
 	def send_message(self, client, message):
-		print 'Channel> send_message %s - %s' % (client, message)
+		#print 'Channel> send_message %s - %s' % (client, message)
 		client.start_response('200 OK', [('Content-Type','application/json; charset="ISO-8859-1"')])
 		evwsgi.write_response(client, [str(message)])
 
@@ -196,7 +197,7 @@ class Channel:
 		evwsgi.write_response(client, [http_error.status])
 
 	def publish(self, message):
-		print 'Channel> publish %s' % message.mid
+		#print 'Channel> publish %s' % message.mid
 		self.stream.insert(message)
 
 		# broadcast to subscribers
@@ -238,7 +239,7 @@ class ChannelPool:
 			return ch
 
 	def get_channel(self, name):
-		print 'ChannelPool> get_channel %s' % name
+		#print 'ChannelPool> get_channel %s' % name
 		try:
 			return self.pool[name]
 		except:
@@ -288,7 +289,7 @@ def start(no=0, shared=None):
 		#	"dtCreated":"1314721007"
 		#}, 0]
 
-		print '######## start subscriber ########'
+		#print '######## start subscriber ########'
 		try:
 			qs = urlparse.parse_qs(environ['QUERY_STRING'])
 
@@ -310,7 +311,7 @@ def start(no=0, shared=None):
 					return return_mesgs(mesg, ch, environ, start_response)
 				else:
 					# mesg not found, subscribe this client
-					print 'Go subscribe...'
+					# print 'Go subscribe...'
 					ch.subscribe(base.Client(environ, start_response, ch, timeout_cb=do_timeout, timeout=ch.timeout))
 					return True
 			elif _s == 'F':
@@ -378,7 +379,7 @@ def start(no=0, shared=None):
 		#	'CONTENT_LENGTH': 167
 		#}
 
-		print '######## start publisher ########'
+		#print '######## start publisher ########'
 
 		if environ['REQUEST_METHOD'] != 'POST':
 			start_response('400 Bad request', [('Content-Type','text/plain')])
@@ -415,7 +416,7 @@ def start(no=0, shared=None):
 	#	cpool.expire(time.time())
 
 	def do_timeout(client):
-		print 'python client timeout', client
+		#print 'python client timeout', client
 		client.channel.subs.pop(client.id(), None)
 		#evwsgi.close_client(client)
 

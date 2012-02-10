@@ -37,6 +37,8 @@ char * VERSION;
 PyObject *py_generic_cb; 
 char * date_format;
 
+#define xfree(p) do { if (p) free(p); p = NULL; } while(0)
+
 /*
 Just to assure the connection will be nonblocking
 */
@@ -66,7 +68,12 @@ void update_environ(PyObject *pyenviron, PyObject *pydict, char *method)
 }
 
 
-
+static void close_timer_obj(struct TimerObj *tout)
+{
+	if (tout) {
+		Py_XDECREF(tout->py_cb);
+	}
+}
 
 /*
 We just free all the required variables and then close the connection to the client 
@@ -74,18 +81,18 @@ We just free all the required variables and then close the connection to the cli
 void close_connection(struct client *cli)
 {
 	LDEBUG(">> ENTER cli=%p host=%s:%i", cli, cli->remote_addr, cli->remote_port);
-    free(cli->input_header);
-    free(cli->cmd);
-    free(cli->uri);
-    free(cli->uri_path);
-//    Py_XDECREF(cli->py_client);
-    Py_XDECREF(cli->response_content);
-    Py_XDECREF(cli->response_content_obj);
-    if (cli->response_fp){
-        //free(cli->response_fp);
-    }
-    close(cli->fd);
-    free(cli);
+	xfree(cli->input_header);
+	xfree(cli->cmd);
+
+	xfree(cli->uri);
+	xfree(cli->uri_path);
+	xfree(cli->remote_addr);
+	Py_XDECREF(cli->py_client);
+	Py_XDECREF(cli->response_content);
+	Py_XDECREF(cli->response_content_obj);
+	close(cli->fd);
+	close_timer_obj(&cli->tout);
+	xfree(cli);
 	LDEBUG("<< EXIT");
 }
 
@@ -96,23 +103,18 @@ void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 
 	LDEBUG(">> ENTER cli=%p tout=%p", cli, tout);
 
+	ev_timer_stop(loop, w);
+	ev_io_stop(EV_A_ &cli->ev_write);
+	ev_io_stop(EV_A_ &cli->ev_read);
+
 	if (tout->py_cb) {
 		LDEBUG("calling %p(%p)", tout->py_cb, cli->py_client);
 		PyObject *pyarglist = Py_BuildValue("(O)",  cli->py_client);
 		PyObject *o = PyEval_CallObject(tout->py_cb, pyarglist);
 		Py_DECREF(o);
-		Py_XDECREF(pyarglist);
-/*	} else {
-		LDEBUG("calling %p(%p", tout->py_cb, cli->py_client);
-		PyObject *py_cb = PyObject_GetAttrString(cli->py_client, "timeout_cb");
-		PyEval_CallFunction(py_cb, "O", cli->py_client);
-		Py_DECREF(py_cb);
-*/	}
+		Py_DECREF(pyarglist);
+	}
 
-	ev_timer_stop(loop, w);
-	ev_io_stop(EV_A_ &cli->ev_write);
-	ev_io_stop(EV_A_ &cli->ev_read);
-	//close_connection(cli);
 	unregister_client(cli);
 	close_connection(cli);
 	LDEBUG("<< EXIT");
@@ -192,27 +194,33 @@ This procedure update cli->uri_path in case of match.
 */
 int handle_uri(struct client *cli)
 {
-    int i,res;
-    PyObject *py_item, *py_uri, *wsgi_cb;
-    char *uri;
+	int i;
+	for (i=0;i<PyList_Size(py_registered_uri);i++)
+	{
+		PyObject *py_item = PyList_GetItem(py_registered_uri, i);
+		if (!py_item)
+			continue;
 
-    for (i=0;i<PyList_Size(py_registered_uri);i++)
-    {
-        py_item=PyList_GetItem(py_registered_uri, i);
-        py_uri =PyTuple_GetItem(py_item,0);
-        wsgi_cb = PyTuple_GetItem(py_item,1);
-        Py_INCREF(wsgi_cb); //because of GetItem RTFM
-        uri=PyString_AsString(py_uri);
-        res=strncmp(uri, cli->uri, strlen(uri));
-        if (res==0)
-        {
-            cli->uri_path=(char *)calloc(strlen(uri)+1, sizeof(char));
-            strcpy(cli->uri_path, uri);   // will be cleaned with cli
-            cli->wsgi_cb=wsgi_cb;
-            return 1;
-        }
-    }
-    return 0;
+		PyObject *py_uri = PyTuple_GetItem(py_item, 0);
+		if (!py_uri)
+			continue;
+
+		PyObject *wsgi_cb = PyTuple_GetItem(py_item, 1);
+		if (!wsgi_cb)
+			continue;
+
+		char *uri = NULL;
+		int uri_len = 0;
+		if (PyString_AsStringAndSize(py_uri, &uri, &uri_len) != -1) {
+			if (strncmp(uri, cli->uri, uri_len) == 0) {
+				cli->uri_path = strdup(uri); // will be cleaned with cli
+				Py_INCREF(wsgi_cb); //because of GetItem RTFM
+				cli->wsgi_cb = wsgi_cb;
+				return 1;
+			}
+		}
+	}
+	return 0;
 }
 
 
@@ -234,7 +242,7 @@ int python_handler(struct client *cli)
     if (!pyenviron)
     {
          LERROR("Failed to create an instance of Environ");
-         exit(1);
+         abort();
     }
     //  2)transform headers into a dictionary and send it to environ.update_headers
     pydict=header_to_dict(cli);
@@ -290,10 +298,9 @@ int python_handler(struct client *cli)
          }
          else
          {
+             Py_INCREF(py_generic_cb);
              cli->wsgi_cb=py_generic_cb;
-             Py_INCREF(cli->wsgi_cb);
-             cli->uri_path=(char *)calloc(1, sizeof(char));
-             strcpy(cli->uri_path,"");
+             cli->uri_path=strdup("");
          }
     }
     // 4) build path_info, ...
@@ -305,6 +312,7 @@ int python_handler(struct client *cli)
     {
         ret=manage_header_body(cli, pyenviron);
         if (ret < 0) {
+            Py_DECREF(pyenviron);
             return ret;
         }
     }
@@ -322,101 +330,97 @@ int python_handler(struct client *cli)
     PyDict_SetItemString(py_response_header, "Date", pydummy);
     Py_DECREF(pydummy);
     Py_DECREF(py_response_header);
-    free(sftime);
+    xfree(sftime);
     pydummy = PyString_FromString(VERSION);
     PyDict_SetItemString(py_response_header, "Server", pydummy);
     Py_DECREF(pydummy);
-    
-    // 8) execute python callbacks with his parameters
-    PyObject *pyarglist = Py_BuildValue("(OO)", pyenviron, pystart_response );
-    cli->response_content = PyEval_CallObject(cli->wsgi_cb,pyarglist);
+
+	// 8) execute python callbacks with its parameters
+	PyObject *pyarglist = Py_BuildValue("(OO)", pyenviron, pystart_response );
+	cli->response_content = PyEval_CallObject(cli->wsgi_cb,pyarglist);
+
 	int defer_response = 0;
-    if (cli->response_content!=NULL) 
-    {
-        if ((PyFile_Check(cli->response_content)==0) && (PyIter_Check(cli->response_content)==1)) {
-            //This is an Iterator object. We have to execute it first
-            cli->response_content_obj = cli->response_content;
-            cli->response_content = PyIter_Next(cli->response_content_obj);
+	if (cli->response_content != NULL) {
+		if ((PyFile_Check(cli->response_content)==0) && (PyIter_Check(cli->response_content)==1)) {
+			//This is an Iterator object. We have to execute it first
+			cli->response_content_obj = cli->response_content;
+			cli->response_content = PyIter_Next(cli->response_content_obj);
 		} else if (PyBool_Check(cli->response_content) == 1 && Py_True == cli->response_content) {
 			defer_response = 1;
 			Py_DECREF(cli->response_content);
 			cli->response_content = NULL;
 		}
-    }
-    Py_DECREF(pyarglist);
-    Py_XDECREF(cli->wsgi_cb);
+	}
+	Py_DECREF(pyarglist);
+	Py_DECREF(cli->wsgi_cb);
+
 	if (defer_response == 1) {
-//		if (register_client(cli) == -1)
-//			return -500;
+		//if (register_client(cli) == -1)
+		//	return -500;
 		return 2;
-	} else if (cli->response_content!=NULL)
-    {
-        PyObject *pydummy = PyObject_Str(pystart_response);
-        strcpy(cli->response_header,PyString_AsString(pydummy));
-		cli->response_header_length=strlen(cli->response_header);
-        Py_DECREF(pydummy);
-    }
-    else 
-    //python call return is NULL
-    {
+	} else if (cli->response_content != NULL) {
+		PyObject *pydummy = PyObject_Str(pystart_response);
+		strcpy(cli->response_header, PyString_AsString(pydummy));
+		cli->response_header_length = PyString_Size(pydummy); //strlen(cli->response_header);
+		Py_DECREF(pydummy);
+	} else  {
 		LERROR("Python error!!!");
-        if (str_append3(cli->response_header,"HTTP/1.0 500 Not found\r\nContent-Type: text/html\r\nServer: ", VERSION, "\r\n\r\n", MAXHEADER)<0)
-        {
+		if (str_append3(cli->response_header,"HTTP/1.0 500 Not found\r\nContent-Type: text/html\r\nServer: ", VERSION, "\r\n\r\n", MAXHEADER)<0) {
 			LDEBUG("ERROR!!!! Response header bigger than foreseen:%i", MAXHEADER);
 			LDEBUG("HEADER TOP\n%s\nHEADER BOT", cli->response_header);
-            return -1;
-        }
+			return -1;
+		}
+
 		cli->response_header_length=strlen(cli->response_header);
-		if (PyErr_Occurred()) 
+		if (PyErr_Occurred())  {
+			//get_traceback();py_b
+			PyObject *pyerrormsg_method=PyObject_GetAttrString(py_base_module,"redirectStdErr");
+			PyObject *pyerrormsg=PyObject_CallFunction(pyerrormsg_method, NULL);
+			Py_DECREF(pyerrormsg_method);
+			Py_DECREF(pyerrormsg);
+			PyErr_Print();
+			PyObject *pysys=PyObject_GetAttrString(py_base_module,"sys");
+			PyObject *pystderr=PyObject_GetAttrString(pysys,"stderr");
+			Py_DECREF(pysys);
+			/*            PyObject *pyclose_method=PyObject_GetAttrString(pystderr, "close");
+						 PyObject *pyclose=PyObject_CallFunction(pyclose_method, NULL);
+						 Py_DECREF(pyclose_method);
+						 Py_DECREF(pyclose);*/
+			PyObject *pygetvalue=PyObject_GetAttrString(pystderr, "getvalue");
+			Py_DECREF(pystderr);
+			PyObject *pyres=PyObject_CallFunction(pygetvalue, NULL);
+			Py_DECREF(pygetvalue);
+			//test if we must send it to the page
+			PyObject *pysendtraceback = PyObject_GetAttrString(py_config_module,"send_traceback_to_browser");
+			cli->response_content=PyList_New(0);
+			if (pysendtraceback==Py_True) {
+				pydummy = PyString_FromString("<h1>Error</h1><pre>");
+				PyList_Append(cli->response_content, pydummy );
+				Py_DECREF(pydummy);
+				PyList_Append(cli->response_content, pyres);
+				pydummy = PyString_FromString("</pre>");
+				PyList_Append(cli->response_content, pydummy);
+				Py_DECREF(pydummy);
+			} else {
+				PyObject *pyshortmsg = PyObject_GetAttrString(py_config_module,"send_traceback_short");
+				PyList_Append(cli->response_content, pyshortmsg);
+				Py_DECREF(pyshortmsg);
+			}
+			Py_DECREF(pyres);
+			Py_DECREF(pysendtraceback);
+		}
+		else
 		{
-            //get_traceback();py_b
-            PyObject *pyerrormsg_method=PyObject_GetAttrString(py_base_module,"redirectStdErr");
-            PyObject *pyerrormsg=PyObject_CallFunction(pyerrormsg_method, NULL);
-            Py_DECREF(pyerrormsg_method);
-            Py_DECREF(pyerrormsg);
-            PyErr_Print();
-            PyObject *pysys=PyObject_GetAttrString(py_base_module,"sys");
-            PyObject *pystderr=PyObject_GetAttrString(pysys,"stderr");
-            Py_DECREF(pysys);
-/*            PyObject *pyclose_method=PyObject_GetAttrString(pystderr, "close");
-            PyObject *pyclose=PyObject_CallFunction(pyclose_method, NULL);
-            Py_DECREF(pyclose_method);
-            Py_DECREF(pyclose);*/
-            PyObject *pygetvalue=PyObject_GetAttrString(pystderr, "getvalue");
-            Py_DECREF(pystderr);
-            PyObject *pyres=PyObject_CallFunction(pygetvalue, NULL);
-            Py_DECREF(pygetvalue);
-            //test if we must send it to the page
-            PyObject *pysendtraceback = PyObject_GetAttrString(py_config_module,"send_traceback_to_browser");
-            cli->response_content=PyList_New(0);
-            if (pysendtraceback==Py_True) {
-                 pydummy = PyString_FromString("<h1>Error</h1><pre>");
-                 PyList_Append(cli->response_content, pydummy );
-                 Py_DECREF(pydummy);
-                 PyList_Append(cli->response_content, pyres);
-                 pydummy = PyString_FromString("</pre>");
-                 PyList_Append(cli->response_content, pydummy);
-                 Py_DECREF(pydummy);
-             } else {
-                 PyObject *pyshortmsg = PyObject_GetAttrString(py_config_module,"send_traceback_short");
-                 PyList_Append(cli->response_content, pyshortmsg);
-                 Py_DECREF(pyshortmsg);
-             }
-             Py_DECREF(pyres);
-             Py_DECREF(pysendtraceback);
-         }
-         else 
-         {
-             cli->response_content=PyList_New(0);
-             pydummy = PyString_FromString("Page not found.");
-             PyList_Append(cli->response_content, pydummy );
-             Py_DECREF(pydummy);
-         }
-    }
-    Py_XDECREF(pystart_response);
-    Py_XDECREF(pyenviron);
+			cli->response_content=PyList_New(0);
+			pydummy = PyString_FromString("Page not found.");
+			PyList_Append(cli->response_content, pydummy );
+			Py_DECREF(pydummy);
+		}
+	}
+	Py_DECREF(pystart_response);
+	Py_DECREF(pyenviron);
 	LDEBUG("<< EXIT cli=%p", cli);
-    return 1;
+	return 1;
 }
 
 /*
@@ -580,15 +584,16 @@ void write_cb(struct ev_loop *loop, struct ev_io *w, int revents)
         else if (PyFile_Check(cli->response_content) && (cli->response_content_obj==NULL)) // we treat file object
         {
 			LDEBUG("Data to send is a file");
-            if (cli->response_iter_sent==-1) // we need to initialise the file descriptor
-            {
-                cli->response_fp=PyFile_AsFile(cli->response_content);
-            }
-            cli->response_iter_sent++;
+			if (cli->response_iter_sent==-1) // we need to initialise the file descriptor
+			{
+				cli->response_fp=PyFile_AsFile(cli->response_content);
+				PyFile_IncUseCount((PyFileObject *)cli->response_content);
+			}
+			cli->response_iter_sent++;
 			LDEBUG("cli=%p iter=%i", cli, cli->response_iter_sent);
-            char buff[MAX_BUFF]="";
-            size_t len=fread(buff, sizeof(char), MAX_BUFF, cli->response_fp);
-            if ((int)len==0)
+            char buff[MAX_BUFF];
+            size_t len=fread(buff, MAX_BUFF, sizeof(char), cli->response_fp);
+            if (len==0)
             {
                 stop=2;
             }
@@ -598,10 +603,11 @@ void write_cb(struct ev_loop *loop, struct ev_io *w, int revents)
                 {
                     stop=2;
                 }
-                if ((int)len<MAX_BUFF)
+                if (len<MAX_BUFF)
                 {
                     //we have send the whole file
                     stop=2;
+					PyFile_DecUseCount((PyFileObject *)cli->response_content);
                 }
             }
             //free(buff);
@@ -771,7 +777,7 @@ void connection_cb(struct ev_loop *loop, struct ev_io *w, int revents)
             {
                 //this is not a normal request, we thus free the parameters created during the initialisation in accept_cb
                 close(cli->fd);
-                free(cli->input_header);
+                xfree(cli->input_header);
             }
          }
     } else {
@@ -812,7 +818,7 @@ void accept_cb(struct ev_loop *loop, struct ev_io *w, int revents)
     cli->input_pos=0;
     cli->retry=0;
     cli->response_iter_sent=-2;
-    cli->remote_addr=inet_ntoa (client_addr.sin_addr);
+    cli->remote_addr=strdup(inet_ntoa (client_addr.sin_addr));
     cli->remote_port=ntohs(client_addr.sin_port);
 	if (setnonblock(cli->fd) < 0) {
 		LERROR("setnonblock: %s", strerror(errno));

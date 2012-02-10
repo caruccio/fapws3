@@ -230,9 +230,7 @@ PyObject * header_to_dict (struct client *cli)
            data[j-1]='\0';
            j=0;
            //printf("METHOD:%s***\n",data);
-           cli->cmd=malloc(strlen(data)+1);
-           assert(cli->cmd);
-           strcpy(cli->cmd, data);   // will be cleaned with cli
+					cli->cmd = strdup(data); // will be cleaned with cli
            pyval = Py_BuildValue("s",data);
            PyDict_SetItemString(pydict, "REQUEST_METHOD", pyval);
            Py_DECREF(pyval);
@@ -249,9 +247,7 @@ PyObject * header_to_dict (struct client *cli)
            pyval = Py_BuildValue("s",data);
            PyDict_SetItemString(pydict, "fapws.uri", pyval);
            Py_DECREF(pyval);
-           cli->uri=malloc(strlen(data)+1);
-           assert(cli->uri);
-           strcpy(cli->uri, data);   // will be cleaned with cli
+					cli->uri = strdup(data); // will be cleaned with cli
            char *query_string;
            query_string=data+sw_query_string-1;
            //printf("QUERY_STRING:%s***\n", query_string);

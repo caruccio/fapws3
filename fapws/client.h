@@ -20,7 +20,6 @@ struct client
 	int retry;
 	char *uri;
 	char *cmd;
-	char *http_major_minor;
 	char *uri_path;   //correspond to the registered uri_header 
 	PyObject *wsgi_cb;
 	int response_iter_sent; //-2: nothing sent, -1: header sent, 0-9999: iter sent
