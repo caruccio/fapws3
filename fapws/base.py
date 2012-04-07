@@ -53,9 +53,6 @@ class Environ(dict):
     def update_from_request(self, data):
         dict.update(self, data)
 
-    def __del__(self):
-        print 'del Environ(%i)' % id(self)
-
 
 class Start_response:
     def __init__(self):
@@ -157,6 +154,3 @@ class Client:
 
     def id(self):
         return id(self)
-
-    def __del__(self):
-        print 'del Client(%i)' % self.id()
