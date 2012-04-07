@@ -1,5 +1,7 @@
 // vim: ts=4
 #define SYSLOG_NAMES
+#include "extra.h"
+
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,10 +13,6 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <syslog.h>
-#include "extra.h"
-
-
-
 
 /*
 This procedure remove the character c from source s and put the result in destination d

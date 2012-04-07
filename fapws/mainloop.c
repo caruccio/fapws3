@@ -1,7 +1,12 @@
 // vim: ts=4
+#include "common.h"
+#include "client.h"
+#include "extra.h"
+#include "wsgi.h"
+#include "mainloop.h"
+
 #include <fcntl.h>   //for setnonblocking 
 #include <stddef.h>  //for the offset command
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -17,13 +22,10 @@
 #include <assert.h>
 
 #include <ev.h>
-
+#ifdef _POSIX_C_SOURCE
+#undef _POSIX_C_SOURCE
+#endif
 #include <Python.h>
-#include "common.h"
-#include "client.h"
-#include "extra.h"
-#include "wsgi.h"
-#include "mainloop.h"
 
 PyObject *pydeferqueue; 
 PyObject *py_base_module;  //to store the fapws.base python module

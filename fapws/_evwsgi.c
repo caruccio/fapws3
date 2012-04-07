@@ -17,9 +17,14 @@
 
 */
 
+#include "extra.h"
+#include "common.h"
+#include "client.h"
+#include "mainloop.h"
+#include "wsgi.h"
+
 #include <fcntl.h>   //for setnonblocking 
 #include <stddef.h>  //for the offset command
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -33,16 +38,13 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <assert.h>
-
-#include <ev.h>
 #include <mcheck.h>
 
+#include <ev.h>
+#ifdef _POSIX_C_SOURCE
+#undef _POSIX_C_SOURCE
+#endif
 #include <Python.h>
-#include "extra.h"
-#include "common.h"
-#include "client.h"
-#include "mainloop.h"
-#include "wsgi.h"
 
 /*
 Somme  global variables

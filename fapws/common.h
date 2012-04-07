@@ -1,6 +1,9 @@
 #pragma once
 
 #include <ev.h>
+#ifdef _POSIX_C_SOURCE
+#undef _POSIX_C_SOURCE
+#endif
 #include <Python.h>
 
 #define MAXHEADER 4096

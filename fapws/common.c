@@ -1,6 +1,5 @@
 #include "extra.h"
 #include "common.h"
-#include <Python.h>
 
 static PyClasses _pyclass;
 

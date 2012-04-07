@@ -1,4 +1,11 @@
+#pragma once
 
+#include "client.h"
+
+#ifdef _POSIX_C_SOURCE
+#undef _POSIX_C_SOURCE
+#endif
+#include <Python.h>
 
 PyObject *parse_query(char * uri);
 

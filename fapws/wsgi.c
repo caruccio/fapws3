@@ -1,14 +1,18 @@
+#include "extra.h"
+#include "common.h"
+#include "client.h"
+#include "wsgi.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <Python.h>
 
-#include "extra.h"
-#include "common.h"
-#include "client.h"
-#include "wsgi.h"
+#ifdef _POSIX_C_SOURCE
+#undef _POSIX_C_SOURCE
+#endif
+#include <Python.h>
 
 extern int debug;
 char *server_name;

@@ -1,9 +1,15 @@
 #include "extra.h"
 #include "client.h"
 #include "mainloop.h"
-#include <Python.h>
-#include <redblack.h>
+
 #include <stddef.h>
+#include <stddef.h>
+
+#include <redblack.h>
+#ifdef _POSIX_C_SOURCE
+#undef _POSIX_C_SOURCE
+#endif
+#include <Python.h>
 
 #define CLIENT_BY_ID(_item) ((struct client *) (((char*)_item) - offsetof(struct client, id)))
 
