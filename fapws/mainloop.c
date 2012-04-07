@@ -62,9 +62,9 @@ int setnonblock(int fd)
 /*
 The procedure call the Environ method called "method" and give pydict as parameter
 */
-void update_environ(PyObject *pyenviron, PyObject *pydict, char *method)
+static void update_environ(struct client *cli, PyObject *pydict, char *method)
 {
-    PyObject *pyupdate=PyObject_GetAttrString(pyenviron, method);
+    PyObject *pyupdate=PyObject_GetAttrString(cli->pyenviron, method);
     Py_XDECREF(PyObject_CallFunction(pyupdate, "(O)", pydict));
     Py_DECREF(pyupdate);
 }
@@ -92,6 +92,8 @@ void close_connection(struct client *cli)
 	Py_XDECREF(cli->py_client);
 	Py_XDECREF(cli->response_content);
 	Py_XDECREF(cli->response_content_obj);
+	Py_XDECREF(cli->pyenviron);
+	Py_XDECREF(cli->pystart_response);
 	close_timer_obj(&cli->tout);
 	close(cli->fd);
 	xfree(cli);
@@ -112,7 +114,8 @@ void timeout_cb(struct ev_loop *loop, ev_timer *w, int revents)
 	if (tout->py_cb) {
 		LDEBUG("calling %p(%p)", tout->py_cb, cli->py_client);
 		PyObject *pyarglist = Py_BuildValue("(O)",  cli->py_client);
-		Py_XDECREF(PyObject_CallObject(tout->py_cb, pyarglist));
+		PyObject *ret = PyEval_CallObject(tout->py_cb, pyarglist);
+		Py_XDECREF(ret);
 		Py_DECREF(pyarglist);
 	}
 
@@ -239,8 +242,8 @@ int python_handler(struct client *cli)
     int ret;
 
     //  1)initialise environ
-    PyObject *pyenviron=PyObject_CallObject(pyclass()->environ, NULL);
-    if (!pyenviron)
+    cli->pyenviron=PyObject_CallObject(pyclass()->environ, NULL);
+    if (!cli->pyenviron)
     {
          LERROR("Failed to create an instance of Environ");
          return -500;
@@ -249,10 +252,9 @@ int python_handler(struct client *cli)
     pydict=header_to_dict(cli);
     if (pydict==Py_None)
     {
-        Py_DECREF(pyenviron);
         return -500;
     }
-    update_environ(pyenviron, pydict, "update_headers");
+    update_environ(cli, pydict, "update_headers");
     Py_DECREF(pydict);
     //  2bis) we check if the request method is supported
     PyObject *pysupportedhttpcmd = PyObject_GetAttrString(py_base_module, "supported_HTTP_command");
@@ -263,7 +265,6 @@ int python_handler(struct client *cli)
         //return not implemented 
         Py_DECREF(pysupportedhttpcmd);
         Py_DECREF(pydummy);
-        Py_DECREF(pyenviron);
         return -501;
     }
     Py_DECREF(pydummy);
@@ -285,7 +286,6 @@ int python_handler(struct client *cli)
         strcpy(cli->response_header,PyString_AsString(pydummy));
         cli->response_header_length=strlen(cli->response_header);
         cli->response_content=PyList_New(0);
-        Py_DECREF(pyenviron);
         return 1;
     }
     Py_DECREF(pysupportedhttpcmd);
@@ -294,7 +294,6 @@ int python_handler(struct client *cli)
     {
          if (py_generic_cb==NULL)
          {
-            Py_DECREF(pyenviron);
             return 0;
          }
          else
@@ -306,25 +305,24 @@ int python_handler(struct client *cli)
     }
     // 4) build path_info, ...
     pydict=py_build_method_variables(cli);
-    update_environ(pyenviron, pydict, "update_uri");
+    update_environ(cli, pydict, "update_uri");
     Py_DECREF(pydict);   
     // 5) in case of POST, put it into the wsgi.input
     if (strcmp(cli->cmd,"POST")==0)
     {
-        ret=manage_header_body(cli, pyenviron);
+        ret=manage_header_body(cli, cli->pyenviron);
         if (ret < 0) {
-            Py_DECREF(pyenviron);
             return ret;
         }
     }
     //  6) add some request info
     pydict=py_get_request_info(cli);
-    update_environ(pyenviron, pydict, "update_from_request");
+    update_environ(cli, pydict, "update_from_request");
     Py_DECREF(pydict);
     // 7) build response object
-    PyObject *pystart_response=PyInstance_New(pyclass()->start_response, NULL, NULL);
+    cli->pystart_response=PyInstance_New(pyclass()->start_response, NULL, NULL);
     // 7b) add the current date to the response object
-    PyObject *py_response_header=PyObject_GetAttrString(pystart_response,"response_headers");
+    PyObject *py_response_header=PyObject_GetAttrString(cli->pystart_response,"response_headers");
     char *sftime;
     sftime=cur_time_rfc1123();
     pydummy = PyString_FromString(sftime);
@@ -337,8 +335,10 @@ int python_handler(struct client *cli)
     Py_DECREF(pydummy);
 
 	// 8) execute python callbacks with its parameters
-	PyObject *pyarglist = Py_BuildValue("(OO)", pyenviron, pystart_response );
+	PyObject *pyarglist = Py_BuildValue("(OO)", cli->pyenviron, cli->pystart_response );
 	cli->response_content = PyObject_CallObject(cli->wsgi_cb,pyarglist);
+	Py_DECREF(pyarglist);
+	Py_DECREF(cli->wsgi_cb);
 
 	int defer_response = 0;
 	if (cli->response_content != NULL) {
@@ -356,12 +356,9 @@ int python_handler(struct client *cli)
 	Py_DECREF(cli->wsgi_cb);
 
 	if (defer_response == 1) {
-		//if (register_client(cli) == -1)
-		//	return -500;
-//		Py_DECREF(pyenviron);
 		return 2;
 	} else if (cli->response_content != NULL) {
-		PyObject *pydummy = PyObject_Str(pystart_response);
+		PyObject *pydummy = PyObject_Str(cli->pystart_response);
 		strcpy(cli->response_header, PyString_AsString(pydummy));
 		cli->response_header_length = PyString_Size(pydummy); //strlen(cli->response_header);
 		Py_DECREF(pydummy);
@@ -372,7 +369,6 @@ int python_handler(struct client *cli)
 			LDEBUG("ERROR!!!! Response header bigger than foreseen:%i", sizeof(cli->response_header));
 			cli->response_header[sizeof(cli->response_header)-1] = 0;
 			LDEBUG("HEADER TOP\n%s\nHEADER BOT", cli->response_header);
-			Py_DECREF(pyenviron);
 			return -1;
 		}
 
@@ -422,8 +418,6 @@ int python_handler(struct client *cli)
 			Py_DECREF(pydummy);
 		}
 	}
-	Py_DECREF(pystart_response);
-	Py_DECREF(pyenviron);
 	LDEBUG("<< EXIT cli=%p", cli);
 	return 1;
 }
@@ -462,7 +456,7 @@ int write_cli(struct client *cli, char *response, size_t len,  int revents)
                     return 0; //stop the watcher and close the connection
                 }
                 // XXX We shouldn't sleep in an event-base server.
-                usleep(10000);  //failed but we don't want to close the watcher
+                usleep(1000);  //failed but we don't want to close the watcher
             }
             if ((int)r==0)
             {
@@ -681,6 +675,7 @@ void write_response_cb(struct ev_loop *loop, struct ev_io *w, int revents)
 
 	LDEBUG(">> ENTER cli=%p", cli);
 	ev_io_stop(EV_A_ w);
+	ev_timer_stop(loop, &cli->tout.timerwatcher);
 
 	if (!write_cli(cli, cli->response_header, cli->response_header_length, revents)) {
 		close_connection(cli);
@@ -807,6 +802,8 @@ void accept_cb(struct ev_loop *loop, struct ev_io *w, int revents)
     cli->response_content_obj=NULL;
     cli->py_client = NULL;
     cli->id = 0;
+    cli->pyenviron = NULL;
+    cli->pystart_response = NULL;
     cli->input_pos=0;
     cli->retry=0;
     cli->response_iter_sent=-2;

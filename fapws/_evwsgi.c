@@ -533,10 +533,8 @@ PyObject *py_register_client(PyObject *self, PyObject *args)
 
 PyObject *py_die(PyObject *a, PyObject *b)
 {
-	a == b;
-	LDEBUG("die");
+	LERROR("fapws dead");
 	abort();
-	LDEBUG("dead");
 }
 
 static PyMethodDef EvhttpMethods[] = {

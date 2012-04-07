@@ -27,11 +27,6 @@ long get_py_client_id(PyObject *py_client)
 	return lid;
 }
 
-/*
-	TODO: Clearly we need a fast rbtree to store clients.
-	Also it would be much better to store in a known struct and expose it to python as a class.
-*/
-//static struct client* _clients[10000000];
 static struct rbtree *rb;
 
 static int compare_client(const void *a, const void *b, const void *c)
@@ -41,27 +36,12 @@ static int compare_client(const void *a, const void *b, const void *c)
 
 	return (id_a < id_b) ? -1 :
 	       (id_a > id_b) ?  1 : 0;
-/*
-	const PyObject *pycli = (const PyObject *)a;
-	const struct client* cli = (const struct client*)b;
-
-	LDEBUG("   a=%p   b=%p/%p\n", pycli, cli, cli->py_client);
-//	LDEBUG("a=%p/%p b=%p/%p\n", ca, ca?ca->py_client:0, cb, cb?cb->py_client:0);
-
-	if (pycli < cli->py_client) return -1;
-	if (pycli > cli->py_client) return 1;
-	return 0;
-*/
 }
 
 void terminate_client(void)
 {
 	LDEBUG("destroy rbtree");
 	if (rb) {
-//		struct client* cli;
-//		for (cli = (struct client*)rblookup(RB_LUFIRST, NULL, rb); cli != NULL; cli = (struct client*)rblookup(RB_LUNEXT, cli, rb)) {
-//			Py_XDECREF(cli->py_client);
-//		}
 		rbdestroy(rb);
 	}
 	rb = NULL;
@@ -76,6 +56,7 @@ int init_client(void)
 		return -1;
 	}
 
+	LINFO("init rbtree client list\n");
 	return 0;
 }
 
@@ -98,8 +79,6 @@ int register_client(struct client *cli)
 	if (CLIENT_BY_ID(rbsearch(&cli->id, rb)) != cli) {
 		return -1;
 	}
-//		Py_INCREF(cli->py_client);
-//	}
 
 	LDEBUG("registered client %p (%p)", cli, cli?cli->py_client:NULL);
 	if (log_level >= LOG_DEBUG)
@@ -110,12 +89,6 @@ int register_client(struct client *cli)
 void unregister_client(struct client* cli)
 {
 	LDEBUG("unregister_client %p", cli);
-/*	if (rbfind(get_py_client_id(&cli->id), rb)) {
-		LDEBUG("unregister client %p (%p)", cli, cli->py_client);
-		rbdelete(cli, rb);
-//		Py_XDECREF(cli->py_client);
-	}
-*/
 	rbdelete(&cli->id, rb);
 	if (log_level >= LOG_DEBUG)
 		dump();
@@ -150,13 +123,13 @@ struct client* get_current_client(void)
 
 int set_client_timer(struct client* cli, float timeout, PyObject* py_cb)
 {
-LDEBUG(">> ENTER");
+	LDEBUG(">> ENTER");
 	memset(&cli->tout.timerwatcher, 0, sizeof(cli->tout.timerwatcher));
 	cli->tout.timeout = timeout;
 	cli->tout.repeat = 0;
 	cli->tout.py_cb = py_cb;
 	start_timer(&cli->tout, &timeout_cb);
-LDEBUG("<< EXIT");
+	LDEBUG("<< EXIT");
 	return 0;
 }
 

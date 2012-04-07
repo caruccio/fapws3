@@ -29,6 +29,8 @@ struct client
 	int response_iter_sent; //-2: nothing sent, -1: header sent, 0-9999: iter sent
 	char response_header[MAXHEADER];
 	int response_header_length;
+	PyObject *pyenviron;
+	PyObject *pystart_response;
 	PyObject *response_content;
 	PyObject *response_content_obj;
 	FILE *response_fp; // file of the sent file

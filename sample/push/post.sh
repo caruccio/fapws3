@@ -1,3 +1,4 @@
+#!/bin/bash -e
 
 date=`date +%s`
 id=${1:-1}

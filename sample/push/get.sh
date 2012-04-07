@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 id=${1:-1}
 channel=${2:-'ch_teste'}

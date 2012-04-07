@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+from application.debug.memory import *
+
 import os, signal, time
 from itertools import takewhile
 import fapws._evwsgi as evwsgi
@@ -271,12 +273,9 @@ def start(no=0, shared=None):
 
 	def do_timeout(client):
 		print 'do_timeout: ', do_timeout
-##		if len(client.channel.subs) == 1:
-##			evwsgi.die()
-		print 'python client %i timeout (%i)' % (client.id(), len(client.channel.subs))
+		print 'python client %i timeout' % client.id()
 		client.channel.unsubscribe(client)
 		print 'remaining %i clients' % len(client.channel.subs)
-		#evwsgi.close_client(client)
 
 	def return_mesgs(mesgs, ch, environ, start_response):
 		if mesgs:
@@ -326,6 +325,9 @@ def start(no=0, shared=None):
 					# mesg not found, subscribe this client
 					print 'Go subscribe...'
 					ch.subscribe(base.Client(environ, start_response, ch, timeout_cb=do_timeout, timeout=ch.timeout))
+					# by returning True we signal write_cb() this is not a ordinary connection.
+					# instead, it will store struct client* and 'block' the socket, waiting for
+					# an event to unblock and feed it.
 					return True
 			elif _s == 'F':
 				return return_mesgs(ch.get_message_oldest(int(qs['m'][0])), ch, environ, start_response)
@@ -342,17 +344,6 @@ def start(no=0, shared=None):
 		except Exception, ex:
 			start_response('500 Internal Error', [('Content-Type','text/plain')])
 			return ['%s' % ex]
-			
-
-#		print 'python: on_get', client
-		
-		#if len(queue) % 100 == 0:
-		#	print len(queue), 'clients'
-
-		# by returning True we signal write_cb() this is not a ordinary connection.
-		# instead, it will store struct client* and 'block' the socket, waiting for
-		# an event to unblock and feed it.
-		#return True
 
 	# Publisher handler
 	def publish(environ, start_response):
@@ -522,6 +513,7 @@ if __name__ == '__main__':
 		log_level = 3
 
 	main(log_level)
+	memory_dump()
 
 #	import sys
 #	if use_posh == True:
