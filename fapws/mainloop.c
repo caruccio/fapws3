@@ -346,18 +346,14 @@ int python_handler(struct client *cli)
 			//This is an Iterator object. We have to execute it first
 			cli->response_content_obj = cli->response_content;
 			cli->response_content = PyIter_Next(cli->response_content_obj);
-		} else if (PyBool_Check(cli->response_content) == 1 && Py_True == cli->response_content) {
+		} else if (Py_True == cli->response_content) {
 			defer_response = 1;
-			Py_DECREF(cli->response_content);
 			cli->response_content = NULL;
+			return 2;
 		}
 	}
-	Py_DECREF(pyarglist);
-	Py_DECREF(cli->wsgi_cb);
 
-	if (defer_response == 1) {
-		return 2;
-	} else if (cli->response_content != NULL) {
+	if (cli->response_content != NULL) {
 		PyObject *pydummy = PyObject_Str(cli->pystart_response);
 		strcpy(cli->response_header, PyString_AsString(pydummy));
 		cli->response_header_length = PyString_Size(pydummy); //strlen(cli->response_header);
