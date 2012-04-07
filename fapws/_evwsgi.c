@@ -35,6 +35,7 @@
 #include <assert.h>
 
 #include <ev.h>
+#include <mcheck.h>
 
 #include <Python.h>
 #include "extra.h"
@@ -196,10 +197,12 @@ static PyObject *py_run_loop(PyObject *self, PyObject *args)
 				start_timer(timer, timer_cb);
         }
     }
+	mtrace();
     ev_loop (loop, 0);
 	terminate_client();
 	
 	LINFO("Finished fapws");
+	muntrace();
     return Py_None;
 }
 
